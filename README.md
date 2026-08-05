@@ -1,6 +1,6 @@
 # awe-some-wallpapers
 
-Rotating macOS desktop + lock screen wallpapers, curated by Claude's eyes.
+Awe-inspiring macOS desktop + lock screen wallpapers, curated for you by Fable.
 
 The pipeline fetches candidate images daily (Unsplash by topic with a
 like-count floor; Wikimedia Commons Featured Pictures as keyless fallback;
