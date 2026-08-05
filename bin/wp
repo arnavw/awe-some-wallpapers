@@ -1,0 +1,74 @@
+#!/bin/bash
+# wp — WorldWallpapers control.
+#   wp          next wallpaper (aliases: next, skip, n)
+#   wp love     strong positive signal on the current photo (teaches the curator)
+#   wp meh      soft negative signal (kept, but the curator learns)
+#   wp ban      delete the current image forever and skip to the next
+#   wp info     show place / photographer / link for the current wallpaper
+#   wp open     open the current photo's source page in the browser
+#   wp curate   run a Claude curation pass over the queue now
+#   wp fetch    pull fresh images now (they queue for curation)
+#
+# Every command is logged to wp_log.jsonl with the image it acted on and how
+# long that image had been on screen — the curator reads this to learn taste.
+
+set -euo pipefail
+BASE="$HOME/.wallpaper-rotator"
+cmd="${1:-next}"
+
+log_action() {
+  /usr/bin/python3 - "$cmd" <<'EOF'
+import json, os, sys, time
+base = os.path.expanduser("~/.wallpaper-rotator")
+entry = {"ts": int(time.time()), "cmd": sys.argv[1], "image": None, "dwell_s": None}
+cur = os.path.join(base, "current.txt")
+try:
+    entry["image"] = os.path.basename(open(cur).read().strip())
+    entry["dwell_s"] = int(time.time() - os.path.getmtime(cur))
+except OSError:
+    pass
+with open(os.path.join(base, "wp_log.jsonl"), "a") as f:
+    f.write(json.dumps(entry) + "\n")
+EOF
+}
+
+case "$cmd" in
+  next|skip|n)
+    log_action
+    bash "$BASE/rotate.sh"
+    ;;
+  love)
+    log_action
+    echo "noted: loved $(basename "$(cat "$BASE/current.txt")")"
+    "$BASE/info.sh"
+    ;;
+  meh)
+    log_action
+    echo "noted: meh — the curator will learn from this"
+    ;;
+  ban)
+    log_action
+    current=$(cat "$BASE/current.txt")
+    name=$(basename "$current")
+    rm -f "$current" "$HOME/Pictures/WorldWallpapers/.display/$name"
+    echo "banned $name"
+    bash "$BASE/rotate.sh"
+    ;;
+  info)
+    "$BASE/info.sh"
+    ;;
+  open)
+    log_action
+    "$BASE/info.sh" open
+    ;;
+  curate)
+    bash "$BASE/curate.sh"
+    ;;
+  fetch)
+    /usr/bin/python3 "$BASE/fetch.py"
+    ;;
+  *)
+    sed -n '2,13p' "$0"
+    exit 1
+    ;;
+esac
