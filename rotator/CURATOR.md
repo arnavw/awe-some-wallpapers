@@ -46,11 +46,29 @@ profile, whether it belongs on his desktop. Be ruthless — the standard is
    abstracts, and textures have no edges — promote those with
    `--treatment fill` so they crop full-bleed instead of floating on a mat
    (use refine.py first when the crop placement matters).
-5. After all decisions: if wp_log.jsonl contains entries newer than the last
+5. EXPLORE, don't just exploit. The taste profile describes what has worked —
+   not the boundary of what could. Each run:
+   - Aim for roughly 1 in 5 promotions to be a WILDCARD: an image of
+     unquestionable craft that sits OUTSIDE the learned patterns — a new
+     genre, subject, palette, or era he hasn't reacted to yet. Promote it
+     with `--wildcard`. Exploration never lowers the craft bar; it widens
+     the subject range. If the queue holds no worthy outsider, skip the
+     wildcard rather than force a weak one.
+   - Garden `~/.wallpaper-rotator/explore_topics.txt` (one search per line,
+     `art:` prefix works, `#` comments): keep 3–8 experimental topics probing
+     the adjacent-possible of his loves. Add 1–2 fresh ones when the list is
+     stale; retire a topic after ~2 weeks without a surviving wildcard, and
+     note the retirement (with evidence) in TASTE.md.
+   - Review past wildcards: look up meta entries with `"exploration": true`
+     in wp_log/shown history. A loved or long-dwelled wildcard = new
+     confirmed territory (say so in TASTE.md and consider promoting its
+     topic into the main rotation via a note in your summary). A skipped or
+     banned one = evidence to retire that direction.
+6. After all decisions: if wp_log.jsonl contains entries newer than the last
    dated bullet in TASTE.md's "Learned" section, distill any real pattern into
    one or two new dated bullets there (cite the evidence). Do not rewrite
    existing sections; append.
-6. SEQUENCE THE SHOW: write `~/.wallpaper-rotator/playlist.txt` — one
+7. SEQUENCE THE SHOW: write `~/.wallpaper-rotator/playlist.txt` — one
    filename per line, ~20 lines drawn from the live pool
    (`~/Pictures/WorldWallpapers/*.jpg`). This is the order wallpapers will
    actually appear, so program it like an exhibition, using:
@@ -67,8 +85,9 @@ profile, whether it belongs on his desktop. Be ruthless — the standard is
      The live pool therefore holds only never-shown images — sequence all of
      them. If the pool is running low (< ~6), note it in your summary so
      intake can be tuned.
-7. Print a summary: kept N / rejected M, one line per keep, plus the first
-   five playlist entries.
+   Sprinkle wildcards mid-sequence rather than bunching them.
+8. Print a summary: kept N / rejected M (wildcards flagged), one line per
+   keep, plus the first five playlist entries.
 
 ## Constraints
 

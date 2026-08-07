@@ -73,7 +73,14 @@ def pick_topics(cfg: dict) -> list:
     a persisted shuffled order advances by topics_per_fetch each run, and
     reshuffles once exhausted, so every topic gets covered before any repeats."""
     state_file = BASE / "topic_cycle.json"
-    topics = cfg["topics"]
+    # The curator gardens explore_topics.txt: experimental searches probing
+    # outside the learned taste profile. They join the cycle like any topic.
+    explore_file = BASE / "explore_topics.txt"
+    extra = []
+    if explore_file.exists():
+        extra = [l.strip() for l in explore_file.read_text().splitlines()
+                 if l.strip() and not l.startswith("#")]
+    topics = list(dict.fromkeys(cfg["topics"] + extra))
     n = min(cfg["topics_per_fetch"], len(topics))
     state = {}
     if state_file.exists():

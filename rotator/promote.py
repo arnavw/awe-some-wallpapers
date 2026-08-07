@@ -25,6 +25,8 @@ parser.add_argument("--title")
 parser.add_argument("--credit")
 parser.add_argument("--treatment", choices=["mat", "fill"],
                     help="art only: mat = museum wall (bounded works), fill = crop full-bleed (unbounded imagery like space)")
+parser.add_argument("--wildcard", action="store_true",
+                    help="exploration pick outside the learned taste profile; outcome is tracked to widen or prune the profile")
 args = parser.parse_args()
 
 meta_file = BASE / "meta.json"
@@ -43,10 +45,12 @@ for name in args.names:
         entry["credit"] = args.credit
     if args.treatment:
         entry["treatment"] = args.treatment
+    if args.wildcard:
+        entry["exploration"] = True
     with open(LOG, "a") as f:
         f.write(json.dumps({
             "ts": int(time.time()), "action": "promote", "image": src.name,
-            "caption": entry.get("title", ""),
+            "caption": entry.get("title", ""), "wildcard": bool(args.wildcard),
         }, ensure_ascii=False) + "\n")
     print(f"promoted {src.name}")
 
