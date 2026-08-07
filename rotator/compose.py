@@ -62,6 +62,22 @@ def visible_box(w: int, h: int) -> tuple:
     return 0.0, (h - w / SCREEN_ASPECT) / 2
 
 
+def center_crop_to_screen(img: Image.Image) -> Image.Image:
+    """Fill treatment for unbounded imagery (nebulae, aerial abstracts):
+    center-crop to screen aspect instead of matting."""
+    w, h = img.size
+    if w / h < SCREEN_ASPECT:
+        ch = w / SCREEN_ASPECT
+        box = (0, (h - ch) / 2, w, (h + ch) / 2)
+    else:
+        cw = h * SCREEN_ASPECT
+        box = ((w - cw) / 2, 0, (w + cw) / 2, h)
+    img = img.crop(tuple(round(v) for v in box))
+    if img.width < 3840:
+        img = img.resize((3840, round(3840 / SCREEN_ASPECT)), Image.LANCZOS)
+    return img
+
+
 def gallery_mat(img: Image.Image) -> Image.Image:
     """Center a portrait/square artwork on a dark museum-wall canvas."""
     cw = 5120
@@ -117,7 +133,13 @@ def draw_caption(img: Image.Image, meta: dict) -> Image.Image:
 def compose(src: Path, dest: Path, meta: dict) -> None:
     img = Image.open(src).convert("RGB")
     if meta.get("kind") == "art" and img.width / img.height < 1.35:
-        img = gallery_mat(img)
+        # Bounded works (paintings, prints) get the museum mat; unbounded
+        # imagery (space, textures) marked treatment=fill gets cropped
+        # full-bleed instead — space has no composition edges to respect.
+        if meta.get("treatment") == "fill":
+            img = center_crop_to_screen(img)
+        else:
+            img = gallery_mat(img)
     img = draw_caption(img, meta)
     dest.parent.mkdir(exist_ok=True)
     img.save(dest, quality=93, subsampling=0)

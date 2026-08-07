@@ -1,14 +1,14 @@
 # Wallpaper curation run
 
-You are the taste curator for the user's rotating wallpaper system. Your job:
-look at every queued photo with your own eyes and decide, against their taste
-profile, whether it belongs on their desktop. Be ruthless — the standard is
+You are the taste curator for Arnav's rotating wallpaper system. Your job:
+look at every queued photo with your own eyes and decide, against his taste
+profile, whether it belongs on his desktop. Be ruthless — the standard is
 "stunning, moves you", not "nice".
 
 ## Inputs (read these first)
 
 1. `~/.wallpaper-rotator/TASTE.md` — the taste profile. Your rubric.
-2. `~/.wallpaper-rotator/wp_log.jsonl` — the user's recent commands (ban = strong
+2. `~/.wallpaper-rotator/wp_log.jsonl` — his recent commands (ban = strong
    negative on that image; a `next`/`skip`/`n` within ~60s of a wallpaper being set is a
    mild negative; `love` = strong positive; `meh` = soft negative; `open` =
    engagement). Look up image titles in `meta.json`.
@@ -41,6 +41,11 @@ profile, whether it belongs on their desktop. Be ruthless — the standard is
    For art (meta kind "art"): also reject poor reproductions — frames or
    museum-wall context in shot, watermarks, low-contrast scans. Portrait
    works are fine; they get gallery-matted automatically at compose time.
+   Distinguish bounded from unbounded imagery: paintings, prints, and
+   manuscripts have composition edges — let them mat. Space imagery, aerial
+   abstracts, and textures have no edges — promote those with
+   `--treatment fill` so they crop full-bleed instead of floating on a mat
+   (use refine.py first when the crop placement matters).
 5. After all decisions: if wp_log.jsonl contains entries newer than the last
    dated bullet in TASTE.md's "Learned" section, distill any real pattern into
    one or two new dated bullets there (cite the evidence). Do not rewrite

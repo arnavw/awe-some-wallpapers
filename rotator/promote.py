@@ -23,6 +23,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("names", nargs="+")
 parser.add_argument("--title")
 parser.add_argument("--credit")
+parser.add_argument("--treatment", choices=["mat", "fill"],
+                    help="art only: mat = museum wall (bounded works), fill = crop full-bleed (unbounded imagery like space)")
 args = parser.parse_args()
 
 meta_file = BASE / "meta.json"
@@ -39,6 +41,8 @@ for name in args.names:
         entry["title"] = args.title
     if args.credit:
         entry["credit"] = args.credit
+    if args.treatment:
+        entry["treatment"] = args.treatment
     with open(LOG, "a") as f:
         f.write(json.dumps({
             "ts": int(time.time()), "action": "promote", "image": src.name,
