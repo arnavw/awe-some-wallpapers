@@ -15,6 +15,7 @@ cp "$REPO"/rotator/*.py "$REPO"/rotator/*.sh "$REPO"/rotator/CURATOR.md "$BASE/"
 chmod +x "$BASE"/*.py "$BASE"/*.sh
 [[ -f "$BASE/config.json" ]] || cp "$REPO/config.example.json" "$BASE/config.json"
 [[ -f "$BASE/TASTE.md" ]] || cp "$REPO/rotator/TASTE.seed.md" "$BASE/TASTE.md"
+[[ -f "$BASE/explore_topics.txt" ]] || cp "$REPO/rotator/explore_topics.seed.txt" "$BASE/explore_topics.txt"
 cp "$REPO/bin/wp" "$HOME/.local/bin/wp"
 chmod +x "$HOME/.local/bin/wp"
 
