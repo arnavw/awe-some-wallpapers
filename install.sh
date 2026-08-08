@@ -9,6 +9,45 @@ REPO="$(cd "$(dirname "$0")" && pwd)"
 BASE="$HOME/.wallpaper-rotator"
 AGENTS="$HOME/Library/LaunchAgents"
 
+# --replica: this Mac mirrors a primary whose state/images are shared via
+# iCloud Drive (AweSomeWallpapers/). No fetching, curation, or rotation here —
+# just symlinks into the synced folders and a mirror agent that follows
+# current.txt. Run the default install on exactly one machine (the primary).
+if [[ "${1:-}" == "--replica" ]]; then
+  ICLOUD="$HOME/Library/Mobile Documents/com~apple~CloudDocs/AweSomeWallpapers"
+  if [[ ! -d "$ICLOUD/state" || ! -d "$ICLOUD/images" ]]; then
+    echo "iCloud folder not synced yet: $ICLOUD" >&2
+    echo "Enable iCloud Drive with the same Apple ID and wait for AweSomeWallpapers to appear." >&2
+    exit 1
+  fi
+  mkdir -p "$HOME/.local/bin" "$AGENTS"
+  [[ -e "$BASE" ]] || ln -s "$ICLOUD/state" "$BASE"
+  [[ -e "$HOME/Pictures/WorldWallpapers" ]] || ln -s "$ICLOUD/images" "$HOME/Pictures/WorldWallpapers"
+  cp "$REPO/bin/wp" "$HOME/.local/bin/wp" && chmod +x "$HOME/.local/bin/wp"
+  cat > "$AGENTS/com.$USER.wallpaper-mirror.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.$USER.wallpaper-mirror</string>
+    <key>ProgramArguments</key>
+    <array><string>/bin/bash</string><string>$BASE/mirror.sh</string></array>
+    <key>WatchPaths</key>
+    <array><string>$ICLOUD/state/current.txt</string></array>
+    <key>StartInterval</key><integer>300</integer>
+    <key>RunAtLoad</key><true/>
+    <key>StandardOutPath</key><string>$HOME/.wallpaper-mirror.log</string>
+    <key>StandardErrorPath</key><string>$HOME/.wallpaper-mirror.log</string>
+</dict>
+</plist>
+EOF
+  launchctl bootout "gui/$(id -u)/com.$USER.wallpaper-mirror" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$AGENTS/com.$USER.wallpaper-mirror.plist"
+  echo "Replica installed — this Mac now mirrors the primary's wallpaper."
+  echo "Tip: turn OFF 'Optimize Mac Storage' for iCloud Drive so images stay downloaded."
+  exit 0
+fi
+
 mkdir -p "$BASE/logs" "$BASE/queue" "$HOME/Pictures/WorldWallpapers" "$HOME/.local/bin" "$AGENTS"
 
 cp "$REPO"/rotator/*.py "$REPO"/rotator/*.sh "$REPO"/rotator/CURATOR.md "$BASE/"

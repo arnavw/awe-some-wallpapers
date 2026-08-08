@@ -43,6 +43,23 @@ Then put your Unsplash key in `~/.wallpaper-rotator/config.json`, check
    NSWorkspace/AppleScript only touch the active Space). The lock screen
    mirrors it automatically.
 
+## Second Mac (mirror mode)
+
+To keep two Macs on the same wallpaper and taste profile, share the state via
+iCloud Drive: on the primary, move `~/.wallpaper-rotator` and
+`~/Pictures/WorldWallpapers` into `iCloud Drive/AweSomeWallpapers/` as
+`state/` and `images/` and symlink them back. On the second Mac (same Apple
+ID, iCloud Drive on, Optimize Mac Storage off):
+
+```bash
+./install.sh --replica
+```
+
+The replica runs no fetching or curation — a mirror agent follows the
+primary's `current.txt` and sets the same wallpaper within seconds of iCloud
+syncing it. `wp love` / `wp meh` work from either machine (append-only logs);
+rotation decisions stay single-writer on the primary.
+
 ## Commands
 
 ```
