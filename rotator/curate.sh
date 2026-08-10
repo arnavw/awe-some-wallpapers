@@ -17,7 +17,7 @@ CLAUDE=$(command -v claude || echo "$HOME/.local/bin/claude")
 echo "$(date '+%F %T') curating ${#queued[@]} queued images"
 "$CLAUDE" -p "$(cat "$BASE/CURATOR.md")" \
   --model claude-fable-5 \
-  --allowedTools "Read,Glob,Write,Edit,Bash(/usr/bin/python3:*),Bash($HOME/.wallpaper-rotator/refine.py:*)" \
+  --allowedTools "Read,Glob,Write,Edit,Bash(/usr/bin/python3:*),Bash($HOME/.wallpaper-rotator/refine.py:*),Bash(uv run:*)" \
   2>&1
 
 # Compose captions for promoted images regardless of how the session ended.

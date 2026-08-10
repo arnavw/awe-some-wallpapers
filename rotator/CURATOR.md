@@ -22,7 +22,8 @@ profile, whether it belongs on his desktop. Be ruthless — the standard is
 3. Optionally REFINE before promoting: if an image contains a detail far
    stronger than its whole (the canonical example: the near-touching fingers
    inside the full Creation of Adam fresco), re-frame it:
-   `~/.wallpaper-rotator/refine.py <filename> <x0> <y0> <x1> <y1>`
+   `uv run --script ~/.wallpaper-rotator/refine.py <filename> <x0> <y0> <x1> <y1>`
+   (always via `uv run` — the system python3 lacks Pillow)
    with fractional coordinates (0-1) of the region of interest; the tool
    expands to screen aspect and re-sharpens. Use sparingly — only when the
    crop is clearly the better artwork. View the file again after refining.
