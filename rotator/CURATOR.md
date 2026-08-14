@@ -78,8 +78,16 @@ profile, whether it belongs on his desktop. Be ruthless — the standard is
    - `wp_log.jsonl`: loved images may recur sooner; meh'd images go late or
      sit out a cycle (they stay in the pool — playlist is programming, not
      deletion).
-   - Variety pacing: never two of the same mood/region/palette adjacent —
-     alternate nature/architecture/art/city, warm/cool, day/night.
+   - Variety pacing is a HARD constraint, not a vibe. Assign each image its
+     dominant register (sky/storm, mountain, water/ice, desert/canyon,
+     architecture, art, city, space, flora) plus region and palette, then
+     enforce: no two images sharing a register OR a region within 3 slots of
+     each other. Two loved skies in a row is still a sequencing failure —
+     he called it "lazy recommendation" (2026-08-13). Loving a register
+     means it recurs ACROSS days, never back-to-back.
+   - The program continues from what was recently shown: check the last 3
+     entries of shown.jsonl and make sure the playlist's opening entries
+     don't repeat their registers either.
    - Lead with the strongest new promotion of the day.
    - Wallpapers never repeat: the rotor retires each shown image to
      `~/Pictures/WorldWallpapers/archive/` (kept forever, out of rotation).
