@@ -1,14 +1,17 @@
 #!/usr/bin/python3
-"""Pick the next wallpaper. Prints an absolute path (empty if nothing exists).
+"""Pick the next wallpaper. Prints an absolute path (empty if nothing fresh).
 
-The pool holds only never-shown images (rotate.sh retires each outgoing
-wallpaper to archive/), so any pool pick is fresh by construction.
+HARD RULE (owner's instruction, 2026-08-18): a shown image is never shown
+again. rotate.sh retires each outgoing wallpaper to archive/, and this
+selector additionally refuses anything in the shown.jsonl history — no
+grandfathered pool entries, no archive replay. If nothing fresh exists, it
+prints nothing and the current wallpaper simply stays up until intake
+delivers.
 
-Selection tiers:
-  1. First playlist entry that exists in the pool and isn't current.
-  2. Random pool image that isn't current.
-  3. Pool empty: replay a random archived image not shown in the last
-     NO_REPEAT_H hours (stopgap until fresh intake catches up).
+Selection:
+  1. First playlist entry that exists in the pool, isn't current, and has
+     never been shown.
+  2. Random never-shown pool image that isn't current.
 
 Consumes the playlist prefix up to the chosen entry. --dry skips the
 playlist write (for testing).
@@ -30,14 +33,11 @@ args = [a for a in sys.argv[1:] if a != "--dry"]
 dry = "--dry" in sys.argv
 current = os.path.basename(args[0]) if args else ""
 
-cutoff = time.time() - NO_REPEAT_H * 3600
-recent = set()
+shown_ever = set()
 try:
     with open(os.path.join(BASE, "shown.jsonl")) as f:
         for line in f:
-            e = json.loads(line)
-            if e.get("ts", 0) >= cutoff:
-                recent.add(e.get("image"))
+            shown_ever.add(json.loads(line).get("image"))
 except OSError:
     pass
 
@@ -51,7 +51,11 @@ except OSError:
 
 pick, consumed = "", 0
 for i, cand in enumerate(lines):
-    if cand != current and os.path.isfile(os.path.join(IMAGES, cand)):
+    if (
+        cand != current
+        and cand not in shown_ever
+        and os.path.isfile(os.path.join(IMAGES, cand))
+    ):
         pick, consumed = cand, i + 1
         break
 
@@ -61,23 +65,10 @@ if pick and not dry:
         f.write("\n".join(rest) + ("\n" if rest else ""))
 
 if not pick:
-    fresh = [f for f in pool if f != current]
+    fresh = [f for f in pool if f != current and f not in shown_ever]
     if fresh:
         pick = random.choice(fresh)
 
+# Nothing fresh: print nothing; the current wallpaper stays up.
 if pick:
     print(os.path.join(IMAGES, pick))
-else:
-    # Pool is dry: replay from the keeper archive until new intake arrives.
-    try:
-        archived = [f for f in os.listdir(ARCHIVE) if f.lower().endswith((".jpg", ".png"))]
-    except OSError:
-        archived = []
-    for tier in (
-        [f for f in archived if f != current and f not in recent],
-        [f for f in archived if f != current],
-        archived,
-    ):
-        if tier:
-            print(os.path.join(ARCHIVE, random.choice(tier)))
-            break

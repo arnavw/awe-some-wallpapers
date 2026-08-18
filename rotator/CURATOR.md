@@ -90,11 +90,14 @@ profile, whether it belongs on his desktop. Be ruthless — the standard is
      entries of shown.jsonl and make sure the playlist's opening entries
      don't repeat their registers either.
    - Lead with the strongest new promotion of the day.
-   - Wallpapers never repeat: the rotor retires each shown image to
-     `~/Pictures/WorldWallpapers/archive/` (kept forever, out of rotation).
-     The live pool therefore holds only never-shown images — sequence all of
-     them. If the pool is running low (< ~6), note it in your summary so
-     intake can be tuned.
+   - Wallpapers NEVER repeat — absolute rule, owner's explicit instruction
+     (2026-08-18). The rotor retires each shown image to
+     `~/Pictures/WorldWallpapers/archive/` and refuses anything in
+     shown.jsonl. Never program a shown image, never give "final chances",
+     never resurface for any reason; the selector will silently drop it
+     anyway. If the pool runs dry the current wallpaper simply stays up —
+     that is intended behavior, not a failure to route around. If the pool
+     is running low (< ~6), note it in your summary so intake can be tuned.
    Sprinkle wildcards mid-sequence rather than bunching them.
 8. Print a summary: kept N / rejected M (wildcards flagged), one line per
    keep, plus the first five playlist entries.
