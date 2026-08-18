@@ -68,6 +68,27 @@ def strip_html(s: str) -> str:
     return re.sub(r"<[^>]+>", "", s).strip()
 
 
+# Fetch-layer junk filter, per repeated curator run-notes: archival document
+# digitizations and event photography keep surviving the search queries and
+# wasting curation slots.
+DOC_WORDS = re.compile(
+    r"scan|folio|codex|atlas|gazetteer|newspaper|manuscript|sheet music|score"
+    r"|title page|text page|diagram|annotated|halftone|microfilm"
+    r"|concert|festival|championship|tournament|gymnastics|stadium|press conference",
+    re.I,
+)
+
+
+def looks_like_document(title: str) -> bool:
+    return bool(DOC_WORDS.search(title))
+
+
+def dup_key(title: str) -> str:
+    """Same-subject key so one fetch run doesn't queue near-duplicate frames
+    (e.g. two Portland Head Light shots in one batch)."""
+    return re.sub(r"\W+", "", title.lower())[:16]
+
+
 def pick_topics(cfg: dict) -> list:
     """Cycle through the full topic list across fetches instead of sampling:
     a persisted shuffled order advances by topics_per_fetch each run, and
@@ -171,7 +192,7 @@ def commons_meta(page: dict, info: dict) -> dict:
     return {"title": title, "credit": artist, "url": url, "source": "Wikimedia Commons"}
 
 
-def fetch_topic_commons(topic: str, cfg: dict, seen: set, meta: dict) -> int:
+def fetch_topic_commons(topic: str, cfg: dict, seen: set, meta: dict, run_titles: set) -> int:
     """Download up to images_per_topic new images for one topic. Returns count."""
     # "featured_only" keeps the pool to award-tier Featured Pictures (community-
     # voted, ~0.1% of Commons). "featured_then_quality" adds the larger but more
@@ -194,10 +215,14 @@ def fetch_topic_commons(topic: str, cfg: dict, seen: set, meta: dict) -> int:
                 break
             key = f"commons:{page['pageid']}"
             info = (page.get("imageinfo") or [{}])[0]
+            title = page.get("title", "")
             if key in seen or not acceptable(info, cfg):
                 continue
-            if not topical(page.get("title", ""), topic):
+            if not topical(title, topic) or looks_like_document(title):
                 continue
+            if dup_key(title) in run_titles:
+                continue
+            run_titles.add(dup_key(title))
             url = info.get("thumburl") or info.get("url")
             if not url:
                 continue
@@ -240,7 +265,7 @@ def acceptable_art(info: dict, cfg: dict) -> bool:
     return max(info.get("width", 0), info.get("height", 0)) >= cfg.get("art_min_dimension", 2400)
 
 
-def fetch_topic_art(topic: str, cfg: dict, seen: set, meta: dict) -> int:
+def fetch_topic_art(topic: str, cfg: dict, seen: set, meta: dict, run_titles: set) -> int:
     """Fine-art path: relevance-ranked Commons search across the whole corpus
     (museum scans usually aren't Featured Pictures). The curation pass judges
     reproduction quality by eye."""
@@ -255,8 +280,12 @@ def fetch_topic_art(topic: str, cfg: dict, seen: set, meta: dict) -> int:
             break
         key = f"commons:{page['pageid']}"
         info = (page.get("imageinfo") or [{}])[0]
+        title = page.get("title", "")
         if key in seen or not acceptable_art(info, cfg):
             continue
+        if looks_like_document(title) or dup_key(title) in run_titles:
+            continue
+        run_titles.add(dup_key(title))
         url = info.get("thumburl") or info.get("url")
         if not url:
             continue
@@ -275,7 +304,7 @@ def fetch_topic_art(topic: str, cfg: dict, seen: set, meta: dict) -> int:
     return got
 
 
-def fetch_topic_unsplash(topic: str, cfg: dict, seen: set, meta: dict) -> int:
+def fetch_topic_unsplash(topic: str, cfg: dict, seen: set, meta: dict, run_titles: set) -> int:
     """Unsplash official API path, used only when an access key is configured.
 
     Awe filter: results are taken in descending like-count order, and anything
@@ -283,12 +312,20 @@ def fetch_topic_unsplash(topic: str, cfg: dict, seen: set, meta: dict) -> int:
     the API offers for "stunning" vs "someone's decent photo".
     """
     auth = {"User-Agent": USER_AGENT, "Authorization": f"Client-ID {cfg['unsplash_access_key']}"}
-    params = urllib.parse.urlencode(
-        {"query": topic, "orientation": "landscape", "per_page": 30, "content_filter": "high"}
-    )
-    req = urllib.request.Request(f"https://api.unsplash.com/search/photos?{params}", headers=auth)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        results = json.load(resp).get("results", [])
+    # Page deeper than the top 30: after weeks of daily fetches the head of
+    # every topic is already in seen.txt and single-page queries run dry.
+    results = []
+    for page in range(1, cfg.get("fetch_pages", 2) + 1):
+        params = urllib.parse.urlencode(
+            {"query": topic, "orientation": "landscape", "per_page": 30,
+             "page": page, "content_filter": "high"}
+        )
+        req = urllib.request.Request(f"https://api.unsplash.com/search/photos?{params}", headers=auth)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            batch = json.load(resp).get("results", [])
+        results.extend(batch)
+        if len(batch) < 30:
+            break
     results.sort(key=lambda p: p.get("likes", 0), reverse=True)
     got = 0
     for photo in results:
@@ -301,6 +338,10 @@ def fetch_topic_unsplash(topic: str, cfg: dict, seen: set, meta: dict) -> int:
             or photo.get("likes", 0) < cfg.get("unsplash_min_likes", 0)
         ):
             continue
+        subject = photo.get("alt_description") or photo.get("description") or photo["id"]
+        if dup_key(subject) in run_titles:
+            continue
+        run_titles.add(dup_key(subject))
         raw = photo["urls"]["raw"] + f"&w={cfg.get('download_width', 5120)}&q=90&fm=jpg"
         name = hashlib.sha1(key.encode()).hexdigest()[:16] + ".jpg"
         try:
@@ -357,20 +398,21 @@ def main() -> None:
     QUEUE.mkdir(parents=True, exist_ok=True)
     topics = pick_topics(cfg)
     total = 0
+    run_titles = set()
     use_unsplash = bool(cfg.get("unsplash_access_key"))
     for topic in topics:
         if topic.startswith("art:"):
             print(f"fetching: {topic} (commons art)")
-            total += fetch_topic_art(topic[4:].strip(), cfg, seen, meta)
+            total += fetch_topic_art(topic[4:].strip(), cfg, seen, meta, run_titles)
             continue
         print(f"fetching: {topic} ({'unsplash' if use_unsplash else 'wikimedia commons'})")
         if use_unsplash:
             try:
-                total += fetch_topic_unsplash(topic, cfg, seen, meta)
+                total += fetch_topic_unsplash(topic, cfg, seen, meta, run_titles)
                 continue
             except Exception as e:
                 print(f"  unsplash failed ({e}); falling back to commons", file=sys.stderr)
-        total += fetch_topic_commons(topic, cfg, seen, meta)
+        total += fetch_topic_commons(topic, cfg, seen, meta, run_titles)
     save_seen(seen)
     prune(cfg, meta)
     save_meta(meta)

@@ -104,6 +104,7 @@ cat > "$AGENTS/com.$USER.wallpaper-fetch.plist" <<EOF
     <array>
         <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
         <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
     </array>
     <key>StandardOutPath</key><string>$HOME/Library/Logs/wallpaper-fetch.log</string>
     <key>StandardErrorPath</key><string>$HOME/Library/Logs/wallpaper-fetch.log</string>
