@@ -48,6 +48,14 @@ profile, whether it belongs on his desktop. Be ruthless — the standard is
    abstracts, and textures have no edges — promote those with
    `--treatment fill` so they crop full-bleed instead of floating on a mat
    (use refine.py first when the crop placement matters).
+   SUBJECT-LEVEL freshness: never-reshow applies to named subjects, not just
+   files. A new photo of a location/subject already shown reads as a rerun
+   to him ("skip this one I've already seen it" — a first-showing daytime
+   Antelope Canyon, 2026-08-18, because the Milky Way Antelope was loved
+   on 08-04). Before promoting, check meta.json titles across pool AND
+   archive: a repeat subject needs both a long gap (~a month) and a
+   radically different treatment to qualify — and a loved image is not a
+   request for more photos of the same place.
 5. EXPLORE, don't just exploit. The taste profile describes what has worked —
    not the boundary of what could. Each run:
    - Aim for roughly 1 in 5 promotions to be a WILDCARD: an image of
