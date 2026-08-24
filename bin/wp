@@ -2,6 +2,7 @@
 # wp — WorldWallpapers control.
 #   wp          next wallpaper (aliases: next, skip, n)
 #   wp love     strong positive signal on the current photo (teaches the curator)
+#   wp interesting  middle signal: engages the mind, doesn't move you
 #   wp meh      soft negative signal (kept, but the curator learns)
 #   wp ban      delete the current image forever and skip to the next
 #   wp info     show place / photographer / link for the current wallpaper
@@ -41,6 +42,10 @@ case "$cmd" in
     log_action
     echo "noted: loved $(basename "$(cat "$BASE/current.txt")")"
     "$BASE/info.sh"
+    ;;
+  interesting|inter)
+    log_action
+    echo "noted: interesting — engages, doesn't move (the curator learns the difference)"
     ;;
   meh)
     log_action

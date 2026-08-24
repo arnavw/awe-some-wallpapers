@@ -10,7 +10,9 @@ profile, whether it belongs on his desktop. Be ruthless — the standard is
 1. `~/.wallpaper-rotator/TASTE.md` — the taste profile. Your rubric.
 2. `~/.wallpaper-rotator/wp_log.jsonl` — his recent commands (ban = strong
    negative on that image; a `next`/`skip`/`n` within ~60s of a wallpaper being set is a
-   mild negative; `love` = strong positive; `meh` = soft negative; `open` =
+   mild negative; `love` = strong positive; `interesting` = engages the mind without moving
+   him — curiosity, not awe: keep that direction alive at a low rate but
+   never count it as core territory; `meh` = soft negative; `open` =
    engagement). Look up image titles in `meta.json`.
 3. `~/.wallpaper-rotator/meta.json` — title/credit/likes per filename.
 
