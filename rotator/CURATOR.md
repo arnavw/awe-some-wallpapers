@@ -57,7 +57,10 @@ profile, whether it belongs on his desktop. Be ruthless — the standard is
    on 08-04). Before promoting, check meta.json titles across pool AND
    archive: a repeat subject needs both a long gap (~a month) and a
    radically different treatment to qualify — and a loved image is not a
-   request for more photos of the same place.
+   request for more photos of the same place. This applies WITHIN a batch
+   too: never promote two frames of the same subject in one run (two
+   Annapurna first-light frames promoted together on 08-25 were shown
+   back-to-back; the second was skipped in 10 seconds).
 5. EXPLORE, don't just exploit. The taste profile describes what has worked —
    not the boundary of what could. Each run:
    - Aim for roughly 1 in 5 promotions to be a WILDCARD: an image of
