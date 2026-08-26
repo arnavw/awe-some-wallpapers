@@ -112,5 +112,6 @@
   "max_aspect": 2.5,
   "quality_pool": "featured_only",
   "unsplash_access_key": "",
-  "unsplash_min_likes": 250
+  "unsplash_min_likes": 250,
+  "explore_min_likes": 50
 }

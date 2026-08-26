@@ -74,7 +74,8 @@ def strip_html(s: str) -> str:
 DOC_WORDS = re.compile(
     r"scan|folio|codex|atlas|gazetteer|newspaper|manuscript|sheet music|score"
     r"|title page|text page|diagram|annotated|halftone|microfilm"
-    r"|concert|festival|championship|tournament|gymnastics|stadium|press conference",
+    r"|concert|festival|championship|tournament|gymnastics|stadium|press conference"
+    r"|songbook|libretto|hymnal|endpaper|binding|gallica|btv1b|partition de",
     re.I,
 )
 
@@ -304,13 +305,17 @@ def fetch_topic_art(topic: str, cfg: dict, seen: set, meta: dict, run_titles: se
     return got
 
 
-def fetch_topic_unsplash(topic: str, cfg: dict, seen: set, meta: dict, run_titles: set) -> int:
+def fetch_topic_unsplash(topic: str, cfg: dict, seen: set, meta: dict, run_titles: set, explore: bool = False) -> int:
     """Unsplash official API path, used only when an access key is configured.
 
     Awe filter: results are taken in descending like-count order, and anything
     under `unsplash_min_likes` is skipped — crowd validation is the best proxy
     the API offers for "stunning" vs "someone's decent photo".
     """
+    # Explore probes are niche by design; the mainstream like-floor starves
+    # them (seven straight runs with zero candidates). The curator's eyes are
+    # the real quality gate, so exploration gets a lower one.
+    min_likes = cfg.get("explore_min_likes", 50) if explore else cfg.get("unsplash_min_likes", 0)
     auth = {"User-Agent": USER_AGENT, "Authorization": f"Client-ID {cfg['unsplash_access_key']}"}
     # Page deeper than the top 30: after weeks of daily fetches the head of
     # every topic is already in seen.txt and single-page queries run dry.
@@ -335,7 +340,7 @@ def fetch_topic_unsplash(topic: str, cfg: dict, seen: set, meta: dict, run_title
         if (
             key in seen
             or photo.get("width", 0) < cfg["min_width"]
-            or photo.get("likes", 0) < cfg.get("unsplash_min_likes", 0)
+            or photo.get("likes", 0) < min_likes
         ):
             continue
         subject = photo.get("alt_description") or photo.get("description") or photo["id"]
@@ -398,6 +403,11 @@ def main() -> None:
     IMAGES.mkdir(parents=True, exist_ok=True)
     QUEUE.mkdir(parents=True, exist_ok=True)
     topics = pick_topics(cfg)
+    explore_file = BASE / "explore_topics.txt"
+    explore_set = set()
+    if explore_file.exists():
+        explore_set = {l.strip() for l in explore_file.read_text().splitlines()
+                       if l.strip() and not l.startswith("#")}
     total = 0
     run_titles = set()
     use_unsplash = bool(cfg.get("unsplash_access_key"))
@@ -409,7 +419,7 @@ def main() -> None:
         print(f"fetching: {topic} ({'unsplash' if use_unsplash else 'wikimedia commons'})")
         if use_unsplash:
             try:
-                total += fetch_topic_unsplash(topic, cfg, seen, meta, run_titles)
+                total += fetch_topic_unsplash(topic, cfg, seen, meta, run_titles, explore=topic in explore_set)
                 continue
             except Exception as e:
                 print(f"  unsplash failed ({e}); falling back to commons", file=sys.stderr)

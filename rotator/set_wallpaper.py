@@ -86,10 +86,40 @@ def update_desktops(node, choice: dict, now: datetime) -> int:
     return count
 
 
+def tahoe_set(image: Path) -> None:
+    """macOS 26+: System Events is the only external path that visibly works —
+    Apple's compat layer performs the sandbox cache-copy the new
+    WallpaperImageExtension requires (raw store writes render the default
+    aerial; NSWorkspace files a ChoiceRequest that goes unconsumed)."""
+    script = (
+        'on run argv\n'
+        'with timeout of 20 seconds\n'
+        'tell application "System Events" to set picture of every desktop to POSIX file (item 1 of argv)\n'
+        'end timeout\n'
+        'end run'
+    )
+    for attempt in range(3):
+        subprocess.run(["/usr/bin/osascript", "-e", script, str(image)], check=False)
+        time.sleep(2)
+        got = subprocess.run(
+            ["/usr/bin/osascript", "-e",
+             'tell application "System Events" to get picture of desktop 1'],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        if got == str(image):
+            print(f"tahoe set -> {image.name}")
+            return
+    sys.exit(f"tahoe set did not stick: {image.name}")
+
+
 def main() -> None:
     image = Path(sys.argv[1]).resolve()
     if not image.is_file():
         sys.exit(f"no such image: {image}")
+
+    if int((platform.mac_ver()[0] or "0").split(".")[0]) >= 26:
+        tahoe_set(image)
+        return
 
     with open(STORE, "rb") as f:
         store = plistlib.load(f)
