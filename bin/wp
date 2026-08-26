@@ -28,7 +28,8 @@ try:
     entry["dwell_s"] = int(time.time() - os.path.getmtime(cur))
 except OSError:
     pass
-with open(os.path.join(base, "wp_log.jsonl"), "a") as f:
+host = os.uname().nodename.split(".")[0]
+with open(os.path.join(base, f"wp_log.{host}.jsonl"), "a") as f:
     f.write(json.dumps(entry) + "\n")
 EOF
 }

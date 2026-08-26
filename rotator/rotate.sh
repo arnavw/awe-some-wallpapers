@@ -1,7 +1,7 @@
 #!/bin/bash
 # Rotate the desktop wallpaper to a random image from ~/Pictures/WorldWallpapers.
 # On macOS Sequoia the lock screen mirrors the desktop wallpaper, so this
-# covers both. Run by launchd on the configured interval (com.$USER.wallpaper-rotate).
+# covers both. Run by launchd every 30 minutes (com.arnavw.wallpaper-rotate).
 
 set -euo pipefail
 
@@ -46,3 +46,6 @@ if [[ -n "$current" && "$current" != "$next" && -f "$current" && "$current" != *
   rm -f "$IMAGES/.display/$(basename "$current")"
 fi
 echo "$(date '+%F %T') set wallpaper: $(basename "$next")"
+
+# Mirror the new state out to the iCloud share for replicas.
+bash "$HOME/.wallpaper-rotator/publish.sh" || true

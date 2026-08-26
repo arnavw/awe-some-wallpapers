@@ -388,6 +388,7 @@ def run_curation() -> None:
     """Hand the queue to the Claude curation pass (which also composes
     captions for whatever it promotes)."""
     subprocess.run(["/bin/bash", str(BASE / "curate.sh")], check=False)
+    subprocess.run(["/bin/bash", str(BASE / "publish.sh")], check=False)
 
 
 def main() -> None:
