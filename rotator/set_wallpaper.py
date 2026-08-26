@@ -14,9 +14,11 @@ Usage: set_wallpaper.py /path/to/image.jpg
 
 import base64
 import os
+import platform
 import plistlib
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -65,14 +67,18 @@ def update_desktops(node, choice: dict, now: datetime) -> int:
     the number of Desktop entries updated."""
     count = 0
     if isinstance(node, dict):
-        desktop = node.get("Desktop")
-        if isinstance(desktop, dict) and "Content" in desktop:
-            desktop["Content"]["Choices"] = [dict(choice)]
-            desktop["LastSet"] = now
-            desktop["LastUse"] = now
-            count += 1
+        # Tahoe stores use "Linked" (space follows the system default) as well
+        # as "Desktop" entries; a linked space left at provider "default"
+        # renders the OS default wallpaper, so rewrite both kinds.
+        for entry_key in ("Desktop", "Linked"):
+            entry = node.get(entry_key)
+            if isinstance(entry, dict) and "Content" in entry:
+                entry["Content"]["Choices"] = [dict(choice)]
+                entry["LastSet"] = now
+                entry["LastUse"] = now
+                count += 1
         for key, v in node.items():
-            if key != "Desktop":
+            if key not in ("Desktop", "Linked"):
                 count += update_desktops(v, choice, now)
     elif isinstance(node, list):
         for v in node:
@@ -89,6 +95,24 @@ def main() -> None:
         store = plistlib.load(f)
 
     config = find_existing_config(store) or FALLBACK_CONFIG
+    # macOS 26 "Tahoe" moved the image path INSIDE the Configuration blob
+    # ({type: imageFile, url: {relative: ...}}) and ignores Files, so a blob
+    # is no longer image-independent: reusing one verbatim leaves the desktop
+    # pointing at whatever image that blob was captured with. Rewrite the
+    # embedded url (or synthesize the blob on Tahoe if none exists); pre-26
+    # blobs ({backgroundColor, placement}) pass through untouched.
+    try:
+        cfg = plistlib.loads(config)
+    except Exception:
+        cfg = None
+    if isinstance(cfg, dict) and cfg.get("type") == "imageFile":
+        cfg["url"] = {"relative": image.as_uri()}
+        config = plistlib.dumps(cfg, fmt=plistlib.FMT_BINARY)
+    elif int((platform.mac_ver()[0] or "0").split(".")[0]) >= 26:
+        config = plistlib.dumps(
+            {"type": "imageFile", "url": {"relative": image.as_uri()}},
+            fmt=plistlib.FMT_BINARY,
+        )
     choice = {
         "Provider": "com.apple.wallpaper.choice.image",
         "Files": [{"relative": image.as_uri()}],
@@ -109,6 +133,27 @@ def main() -> None:
     os.replace(tmp, STORE)
 
     subprocess.run(["/usr/bin/killall", "WallpaperAgent"], check=False)
+
+    # macOS 26 (Tahoe) renders through a sandboxed extension that can only
+    # open files explicitly granted to it. The supported NSWorkspace call
+    # files that grant (a bookmark lands in the extension's
+    # ChoiceRequests.ImageFiles queue); the store stamp above still covers
+    # every Space. Harmless on older macOS. Runs after the agent respawns.
+    time.sleep(2)
+    jxa = (
+        'ObjC.import("AppKit");'
+        "function run(argv){"
+        "const url=$.NSURL.fileURLWithPath(argv[0]);"
+        "const ws=$.NSWorkspace.sharedWorkspace;"
+        "const s=$.NSScreen.screens;"
+        "for(let i=0;i<s.count;i++){const e=Ref();"
+        "ws.setDesktopImageURLForScreenOptionsError(url,s.objectAtIndex(i),$.NSDictionary.dictionary,e);}"
+        'return "ok";}'
+    )
+    subprocess.run(
+        ["/usr/bin/osascript", "-l", "JavaScript", "-e", jxa, str(image)],
+        check=False,
+    )
     print(f"updated {updated} desktop entries -> {image.name}")
 
 
