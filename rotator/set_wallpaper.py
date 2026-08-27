@@ -1,24 +1,21 @@
 #!/usr/bin/python3
-"""Set the desktop wallpaper for ALL Spaces and displays by editing the
-wallpaper store directly (~/Library/Application Support/com.apple.wallpaper/
-Store/Index.plist) and restarting WallpaperAgent.
+"""Legacy wallpaper setter for macOS 15 (Sequoia) and earlier — stamps every
+Space/display entry of the wallpaper store (~/Library/Application Support/
+com.apple.wallpaper/Store/Index.plist) and restarts WallpaperAgent, which is
+the only path that covers all Spaces plus the lock screen on those systems.
 
-Why not NSWorkspace / System Events? On Sonoma/Sequoia both only affect the
-currently active Space — the persistent store keeps per-Space entries, so the
-change vanishes when the user switches Spaces or locks the screen. Editing the
-store is how the community (Jamf et al.) sets wallpaper machine-wide; the lock
-screen mirrors the stored desktop wallpaper.
+On macOS 26+ (Tahoe) this file is NOT used: the sandboxed renderer ignores
+ungranted store paths, so apply.sh swaps the contents of a single
+Settings-granted file instead. apply.sh dispatches by OS version.
 
 Usage: set_wallpaper.py /path/to/image.jpg
 """
 
 import base64
 import os
-import platform
 import plistlib
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -33,7 +30,8 @@ STORE = (
 )
 
 # {backgroundColor, placement: 1} — the standard image-choice Configuration
-# blob captured from a System Settings-written store; it is image-independent.
+# blob captured from a System Settings-written store; it is image-independent
+# on pre-26 systems.
 FALLBACK_CONFIG = base64.b64decode(
     "YnBsaXN0MDDSAQIDDF8QD2JhY2tncm91bmRDb2xvcllwbGFjZW1lbnTSBAUGC1pjb21wb25l"
     "bnRzWmNvbG9yU3BhY2WkBwgJCiM/0FBQUFBQUCM/2lpaWlpaWiM/5VVVVVVVVSM/8AAAAAAA"
@@ -63,13 +61,10 @@ def find_existing_config(node) -> Optional[bytes]:
 
 
 def update_desktops(node, choice: dict, now: datetime) -> int:
-    """Recursively replace every Desktop content choice in the store. Returns
-    the number of Desktop entries updated."""
+    """Recursively replace every Desktop/Linked content choice in the store.
+    Returns the number of entries updated."""
     count = 0
     if isinstance(node, dict):
-        # Tahoe stores use "Linked" (space follows the system default) as well
-        # as "Desktop" entries; a linked space left at provider "default"
-        # renders the OS default wallpaper, so rewrite both kinds.
         for entry_key in ("Desktop", "Linked"):
             entry = node.get(entry_key)
             if isinstance(entry, dict) and "Content" in entry:
@@ -86,63 +81,15 @@ def update_desktops(node, choice: dict, now: datetime) -> int:
     return count
 
 
-def tahoe_set(image: Path) -> None:
-    """macOS 26+: System Events is the only external path that visibly works —
-    Apple's compat layer performs the sandbox cache-copy the new
-    WallpaperImageExtension requires (raw store writes render the default
-    aerial; NSWorkspace files a ChoiceRequest that goes unconsumed)."""
-    script = (
-        'on run argv\n'
-        'with timeout of 20 seconds\n'
-        'tell application "System Events" to set picture of every desktop to POSIX file (item 1 of argv)\n'
-        'end timeout\n'
-        'end run'
-    )
-    for attempt in range(3):
-        subprocess.run(["/usr/bin/osascript", "-e", script, str(image)], check=False)
-        time.sleep(2)
-        got = subprocess.run(
-            ["/usr/bin/osascript", "-e",
-             'tell application "System Events" to get picture of desktop 1'],
-            capture_output=True, text=True,
-        ).stdout.strip()
-        if got == str(image):
-            print(f"tahoe set -> {image.name}")
-            return
-    sys.exit(f"tahoe set did not stick: {image.name}")
-
-
 def main() -> None:
     image = Path(sys.argv[1]).resolve()
     if not image.is_file():
         sys.exit(f"no such image: {image}")
 
-    if int((platform.mac_ver()[0] or "0").split(".")[0]) >= 26:
-        tahoe_set(image)
-        return
-
     with open(STORE, "rb") as f:
         store = plistlib.load(f)
 
     config = find_existing_config(store) or FALLBACK_CONFIG
-    # macOS 26 "Tahoe" moved the image path INSIDE the Configuration blob
-    # ({type: imageFile, url: {relative: ...}}) and ignores Files, so a blob
-    # is no longer image-independent: reusing one verbatim leaves the desktop
-    # pointing at whatever image that blob was captured with. Rewrite the
-    # embedded url (or synthesize the blob on Tahoe if none exists); pre-26
-    # blobs ({backgroundColor, placement}) pass through untouched.
-    try:
-        cfg = plistlib.loads(config)
-    except Exception:
-        cfg = None
-    if isinstance(cfg, dict) and cfg.get("type") == "imageFile":
-        cfg["url"] = {"relative": image.as_uri()}
-        config = plistlib.dumps(cfg, fmt=plistlib.FMT_BINARY)
-    elif int((platform.mac_ver()[0] or "0").split(".")[0]) >= 26:
-        config = plistlib.dumps(
-            {"type": "imageFile", "url": {"relative": image.as_uri()}},
-            fmt=plistlib.FMT_BINARY,
-        )
     choice = {
         "Provider": "com.apple.wallpaper.choice.image",
         "Files": [{"relative": image.as_uri()}],
@@ -163,27 +110,6 @@ def main() -> None:
     os.replace(tmp, STORE)
 
     subprocess.run(["/usr/bin/killall", "WallpaperAgent"], check=False)
-
-    # macOS 26 (Tahoe) renders through a sandboxed extension that can only
-    # open files explicitly granted to it. The supported NSWorkspace call
-    # files that grant (a bookmark lands in the extension's
-    # ChoiceRequests.ImageFiles queue); the store stamp above still covers
-    # every Space. Harmless on older macOS. Runs after the agent respawns.
-    time.sleep(2)
-    jxa = (
-        'ObjC.import("AppKit");'
-        "function run(argv){"
-        "const url=$.NSURL.fileURLWithPath(argv[0]);"
-        "const ws=$.NSWorkspace.sharedWorkspace;"
-        "const s=$.NSScreen.screens;"
-        "for(let i=0;i<s.count;i++){const e=Ref();"
-        "ws.setDesktopImageURLForScreenOptionsError(url,s.objectAtIndex(i),$.NSDictionary.dictionary,e);}"
-        'return "ok";}'
-    )
-    subprocess.run(
-        ["/usr/bin/osascript", "-l", "JavaScript", "-e", jxa, str(image)],
-        check=False,
-    )
     print(f"updated {updated} desktop entries -> {image.name}")
 
 
