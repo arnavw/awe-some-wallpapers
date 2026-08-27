@@ -27,14 +27,20 @@ cp -f "$SRC" "$CUR.tmp"
 mv -f "$CUR.tmp" "$CUR"
 /usr/bin/killall WallpaperAgent 2>/dev/null || true
 
-# Observable check: after the restart the extension re-caches the granted
-# file; a cache entry newer than our swap means the new image rendered.
-CACHE="$HOME/Library/Containers/com.apple.wallpaper.extension.image/Data/Library/Caches"
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  sleep 1
-  if [[ -n "$(find "$CACHE" -name '*.jpg' -newer "$CUR" 2>/dev/null | head -1)" ]]; then
-    echo "applied: $(basename "$SRC") (cache refreshed)"
-    exit 0
-  fi
-done
-echo "applied: $(basename "$SRC") (cache refresh unconfirmed)"
+# Return immediately after the swap: the caller's state bookkeeping must not
+# sit behind a wait (an interrupted caller once left the screen and the state
+# disagreeing about which image was up). The cache-refresh check runs
+# detached, purely as a log signal.
+(
+  CACHE="$HOME/Library/Containers/com.apple.wallpaper.extension.image/Data/Library/Caches"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    sleep 1
+    if [[ -n "$(find "$CACHE" -name '*.jpg' -newer "$CUR" 2>/dev/null | head -1)" ]]; then
+      echo "$(date '+%F %T') cache refreshed for $(basename "$SRC")" >> "$HOME/Library/Logs/wallpaper-rotate.log"
+      exit 0
+    fi
+  done
+  echo "$(date '+%F %T') cache refresh unconfirmed for $(basename "$SRC")" >> "$HOME/Library/Logs/wallpaper-rotate.log"
+) >/dev/null 2>&1 &
+disown || true
+echo "applied: $(basename "$SRC")"
