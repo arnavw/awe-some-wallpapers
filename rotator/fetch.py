@@ -91,21 +91,16 @@ def save_json(path: Path, data) -> None:
 
 
 def ledger_queries() -> set:
-    out = set()
-    try:
-        for line in open(BASE / "queries.jsonl"):
-            out.add(json.loads(line)["query"].lower())
-    except OSError:
-        pass
-    return out
+    """Every query ever executed, from the event store (never repeat one)."""
+    sys.path.insert(0, str(BASE))
+    from events import load
+    return {e["query"].lower() for e in load() if e.get("type") == "query" and e.get("query")}
 
 
 def ledger_add(query: str, register: str, source: str, purpose: str, yielded: int) -> None:
-    with open(BASE / "queries.jsonl", "a") as f:
-        f.write(json.dumps({
-            "ts": int(time.time()), "query": query, "register": register,
-            "source": source, "purpose": purpose, "yield": yielded,
-        }) + "\n")
+    sys.path.insert(0, str(BASE))
+    from events import append
+    append("query", query=query, register=register, source=source, purpose=purpose, **{"yield": yielded})
 
 
 # ----------------------------------------------------------------- plan ----

@@ -16,20 +16,10 @@ BASE="$HOME/.wallpaper-rotator"
 cmd="${1:-next}"
 
 log_action() {
-  /usr/bin/python3 - "$cmd" <<'EOF'
-import json, os, sys, time
-base = os.path.expanduser("~/.wallpaper-rotator")
-entry = {"ts": int(time.time()), "cmd": sys.argv[1], "image": None, "dwell_s": None}
-cur = os.path.join(base, "current.txt")
-try:
-    entry["image"] = os.path.basename(open(cur).read().strip())
-    entry["dwell_s"] = int(time.time() - os.path.getmtime(cur))
-except OSError:
-    pass
-host = os.uname().nodename.split(".")[0]
-with open(os.path.join(base, f"wp_log.{host}.jsonl"), "a") as f:
-    f.write(json.dumps(entry) + "\n")
-EOF
+  local image dwell
+  image=$(basename "$(cat "$BASE/current.txt" 2>/dev/null)" 2>/dev/null || true)
+  dwell=$(( $(date +%s) - $(stat -f %m "$BASE/current.txt" 2>/dev/null || date +%s) ))
+  /usr/bin/python3 "$BASE/events.py" append reaction "cmd=$cmd" "image=$image" "dwell_s=$dwell" >/dev/null
 }
 
 case "$cmd" in
@@ -47,6 +37,18 @@ case "$cmd" in
   fetch)         /usr/bin/python3 "$BASE/fetch.py" ;;
   curate)        bash "$BASE/curate.sh" ;;
   seed)          bash "$BASE/seed.sh" ;;
+  undo)  # correct the last reaction: wp undo love|interesting|meh  (re-labels it)
+    /usr/bin/python3 - "${2:-}" <<'EOF'
+import sys
+sys.path.insert(0, __import__("os").path.expanduser("~/.wallpaper-rotator"))
+from events import load, append
+last = [e for e in load() if e["type"] == "reaction" and e.get("cmd") in ("love","interesting","meh")][-1]
+new = sys.argv[1] or "interesting"
+append("correction", ref_ts=last["ts"], field="cmd", value=new)
+print(f"corrected: {last['cmd']} -> {new} on {last.get('image')}")
+EOF
+    ;;
+  events)        /usr/bin/python3 "$BASE/events.py" tail "${2:-15}" ;;
   status)
     echo "pool:    $(ls "$HOME/Pictures/WorldWallpapers"/*.jpg 2>/dev/null | wc -l | tr -d ' ')"
     echo "queue:   $(ls "$BASE/queue" 2>/dev/null | wc -l | tr -d ' ')"

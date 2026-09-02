@@ -14,12 +14,13 @@ deliberately probe what he has never seen.
 - `~/.wallpaper-rotator/bandit.json` — per-register evidence (loves, negatives,
   pulls, posterior mean). Computed by `learn.py` before this run. Trust the
   arithmetic over your narrative.
-- `~/.wallpaper-rotator/queries.jsonl` — every query ever executed and its
-  yield. Never repeat a query string.
+- `~/.wallpaper-rotator/events*.jsonl` — the append-only record of everything:
+  `shown`, `reaction` (love / interesting / meh / ban / skip with dwell_s),
+  `promote`, `reject`, `query` (every query ever executed — never repeat one),
+  `correction`. Read it with `/usr/bin/python3 ~/.wallpaper-rotator/events.py tail 200`
+  (corrections are already applied in that view). Never edit these files.
 - `~/.wallpaper-rotator/meta.json` — per file: title, credit, source, kind,
   register, purpose (exploit/surprise/orthogonal), the query that found it.
-- `~/.wallpaper-rotator/wp_log*.jsonl` — reactions (love / interesting / meh /
-  ban / skip with dwell). `shown.jsonl` — every showing.
 
 ## Judge the queue
 

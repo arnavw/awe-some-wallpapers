@@ -14,8 +14,8 @@ host=$(hostname -s)
 rsync -a --exclude 'queue/' --exclude 'logs/' "$BASE/" "$IC/state/" 2>/dev/null
 rsync -a --delete --exclude 'archive/' --exclude 'current/' "$IMAGES/" "$IC/images/" 2>/dev/null
 rsync -a "$IMAGES/archive/" "$IC/images/archive/" 2>/dev/null
-# pull replica reaction logs (never our own file)
-for f in "$IC"/state/wp_log.*.jsonl; do
-  [[ -f "$f" && "$(basename "$f")" != "wp_log.$host.jsonl" ]] && cp -f "$f" "$BASE/" 2>/dev/null
+# pull replica event streams (never our own file)
+for f in "$IC"/state/events.*.jsonl; do
+  [[ -f "$f" && "$(basename "$f")" != "events.$host.jsonl" ]] && cp -f "$f" "$BASE/" 2>/dev/null
 done
 exit 0

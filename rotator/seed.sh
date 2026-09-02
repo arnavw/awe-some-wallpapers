@@ -19,6 +19,8 @@ if [[ ! -f "$STABLE" ]]; then
   [[ -z "$src" ]] && { echo "no image to seed with — run: wp fetch"; exit 1; }
   cp -f "$src" "$STABLE"; chmod 644 "$STABLE"
 fi
+# Keep the legacy ~/Pictures stable path in step too (apply.sh writes both).
+mkdir -p "$IMAGES/current" && cp -f "$STABLE" "$IMAGES/current/wallpaper.jpg"
 
 /usr/bin/osascript -e "tell application \"System Events\" to set picture of every desktop to POSIX file \"$STABLE\""
 echo "seeded: macOS now follows $STABLE (desktop + lock screen)."

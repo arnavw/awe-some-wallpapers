@@ -12,7 +12,7 @@ as exploration so its outcome is tracked. Appends to curation_log.jsonl.
 
 import argparse
 import json
-import time
+import sys
 from pathlib import Path
 
 BASE = Path.home() / ".wallpaper-rotator"
@@ -43,10 +43,8 @@ meta_file.write_text(json.dumps(meta, indent=1, ensure_ascii=False))
 
 IMAGES.mkdir(parents=True, exist_ok=True)
 src.rename(IMAGES / src.name)
-with open(BASE / "curation_log.jsonl", "a") as f:
-    f.write(json.dumps({
-        "ts": int(time.time()), "action": "promote", "image": src.name,
-        "caption": entry.get("title", ""), "register": entry.get("register"),
-        "purpose": entry.get("purpose", "exploit"),
-    }, ensure_ascii=False) + "\n")
+sys.path.insert(0, str(BASE))
+from events import append  # noqa: E402
+append("promote", image=src.name, caption=entry.get("title", ""),
+       register=entry.get("register"), purpose=entry.get("purpose", "exploit"))
 print(f"promoted {src.name} [{entry.get('register')}/{entry.get('purpose', 'exploit')}]")

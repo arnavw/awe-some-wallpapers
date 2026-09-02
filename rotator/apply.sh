@@ -27,10 +27,15 @@ if [[ "$major" -lt 26 ]]; then
   exec /usr/bin/python3 "$HERE/set_wallpaper.py" "$SRC"
 fi
 
-mkdir -p "$STABLE_DIR"
+mkdir -p "$STABLE_DIR" "$HOME/Pictures/WorldWallpapers/current"
 chmod 755 "$STABLE_DIR"
-cp -f "$SRC" "$STABLE.tmp"
-chmod 644 "$STABLE.tmp"
-mv -f "$STABLE.tmp" "$STABLE"
+# Write every stable path macOS may hold a grant on: /Users/Shared is readable
+# by the sandboxed renderer on all Macs; ~/Pictures/…/current is the path some
+# installs were seeded on before the move. Whichever is selected refreshes.
+for target in "$STABLE" "$HOME/Pictures/WorldWallpapers/current/wallpaper.jpg"; do
+  cp -f "$SRC" "$target.tmp"
+  chmod 644 "$target.tmp"
+  mv -f "$target.tmp" "$target"
+done
 /usr/bin/killall WallpaperAgent 2>/dev/null || true
 echo "applied: $(basename "$SRC")"

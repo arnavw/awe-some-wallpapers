@@ -28,8 +28,7 @@ if ! bash "$BASE/apply.sh" "$target"; then
 fi
 
 echo "$next" > "$STATE"
-printf '{"ts": %s, "image": "%s"}\n' "$(date +%s)" "$(basename "$next")" \
-  >> "$BASE/shown.jsonl"
+/usr/bin/python3 "$BASE/events.py" append shown "image=$(basename "$next")" >/dev/null
 
 # Never-repeat: the outgoing wallpaper retires to the keeper archive.
 if [[ -n "$current" && "$current" != "$next" && -f "$current" && "$current" != *"/archive/"* ]]; then

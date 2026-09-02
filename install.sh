@@ -37,7 +37,8 @@ if [[ "${1:-}" == "--replica" ]]; then
   [[ -d "$IC/state" && -d "$IC/images" ]] || { echo "iCloud folder not synced yet: $IC"; exit 1; }
   [[ -e "$BASE" ]] || ln -s "$IC/state" "$BASE"
   [[ -e "$HOME/Pictures/WorldWallpapers" ]] || ln -s "$IC/images" "$HOME/Pictures/WorldWallpapers"
-  cp "$REPO/rotator/mirror.sh" "$REPO/rotator/apply.sh" "$REPO/rotator/seed.sh" "$REPO/rotator/set_wallpaper.py" "$REPO/rotator/info.sh" "$HOME/.local/bin/" 2>/dev/null || true
+  touch "$HOME/.wallpaper-replica"   # local marker: this machine appends to events.<host>.jsonl
+  cp "$REPO/rotator/mirror.sh" "$REPO/rotator/apply.sh" "$REPO/rotator/seed.sh" "$REPO/rotator/set_wallpaper.py" "$REPO/rotator/info.sh" "$REPO/rotator/events.py" "$HOME/.local/bin/" 2>/dev/null || true
   plist "com.$USER.wallpaper-mirror" \
     "<string>/bin/bash</string><string>$HOME/.local/bin/mirror.sh</string>" \
     "<key>WatchPaths</key><array><string>$IC/state/current.txt</string></array><key>StartInterval</key><integer>300</integer><key>MaterializeDatalessFiles</key><true/>"
