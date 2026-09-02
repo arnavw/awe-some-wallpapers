@@ -1,16 +1,26 @@
 #!/usr/bin/python3
-"""Wallpaper fetcher for the WorldWallpapers rotation.
+"""Intake engine: turn a query plan into a queue of wallpaper candidates.
 
-Downloads high-resolution, landscape-oriented photos of architecture,
-buildings, and landscapes into ~/Pictures/WorldWallpapers.
+Where queries come from, in priority order:
+  1. plan.json — six queries the curator wrote at the end of its last run,
+     each tagged with a register (bandit arm), a source, and a purpose
+     (exploit / surprise / orthogonal). Consumed once, then deleted.
+  2. Otherwise a bootstrap plan synthesized from bandit.json: Thompson
+     samples pick exploit arms, the least-pulled arms fill surprise slots,
+     and each arm's seed phrases (below) become queries.
 
-Sources, in order of preference:
-  1. Unsplash official API (only if `unsplash_access_key` is set in config.json)
-  2. Wikimedia Commons "Featured pictures" (award-tier, human-curated)
-  3. Wikimedia Commons "Quality images" (larger pool, still human-reviewed)
+Every executed query is appended to queries.jsonl and never executed again:
+the ledger is the novelty guarantee at the query level.
 
-Topics come from ~/.wallpaper-rotator/config.json — edit that file to change
-what you see. Stdlib only, so it runs on the stock macOS python3 from launchd.
+Sources, chosen per register — all keyless except Unsplash:
+  unsplash  photography, relevance-ranked, no like-floor (the curator's eyes
+            are the quality gate; ranking by likes only ever found postcards)
+  commons   Wikimedia Commons Featured Pictures (photo registers)
+  met       The Met open access: public-domain highlights, direct hi-res
+  aic       Art Institute of Chicago: public-domain works over IIIF
+  nasa      NASA image library: space and science imagery
+
+Stdlib only; runs on the stock macOS python3 from launchd.
 """
 
 import hashlib
@@ -20,119 +30,142 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 BASE = Path.home() / ".wallpaper-rotator"
-IMAGES = Path.home() / "Pictures" / "WorldWallpapers"
-SEEN_FILE = BASE / "seen.txt"
-META_FILE = BASE / "meta.json"
-# Downloads land in the queue; a Claude curation pass (curate.sh) decides
-# what gets promoted into the live pool at IMAGES.
 QUEUE = BASE / "queue"
-# Wikimedia robot policy (https://w.wiki/4wJS) requires a descriptive UA with contact info.
-USER_AGENT = "WorldWallpapers/1.0 (personal wallpaper rotator; contact: dolphin.arnav@gmail.com)"
-COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+# No URL in the UA: the Art Institute's image server 403s agents that carry one.
+UA = "awe-some-wallpapers/2.0 (personal wallpaper curator; github arnavw/awe-some-wallpapers)"
 
+# Registers are the bandit's arms. Seed phrases are only used for bootstrap
+# plans; the curator writes its own queries once it is running.
+REGISTERS = {
+    "night sky":      ["aurora over mountains", "milky way arch", "moonlit peak", "star trails desert"],
+    "storm/weather":  ["supercell storm", "lightning storm plains", "lenticular cloud", "sunset thunderhead"],
+    "volcanic":       ["lava lake night", "volcano eruption", "lava meets ocean", "geothermal field steam"],
+    "ice/polar":      ["iceberg fog", "glacier crevasse", "antarctica ice shelf", "frozen lake bubbles"],
+    "mountain":       ["alpenglow ridge", "himalaya face dawn", "dolomites storm light", "patagonia granite"],
+    "desert/ground":  ["salt flat polygons", "sand dune abstract aerial", "slot canyon light", "badlands erosion"],
+    "water/coast":    ["sea stacks fog", "bioluminescent tide", "cenote light shaft", "tidal flats aerial"],
+    "architecture":   ["mosque dome interior", "gothic cathedral nave", "stepwell geometry", "brutalist concrete light"],
+    "ruins/ancient":  ["angkor dawn mist", "petra siq light", "machu picchu clouds", "megalith moonlight"],
+    "city":           ["city night rain neon", "skyscraper fog aerial", "old town rooftops dusk", "harbor lights night"],
+    "fine art":       ["nocturne painting", "romantic landscape painting", "japanese woodblock print", "luminism painting"],
+    "illustration":   ["botanical illustration plate", "celestial atlas plate", "vintage travel poster", "architectural drawing"],
+    "science":        ["nebula", "electron microscope crystal", "satellite earth pattern", "solar flare"],
+    "wildlife":       ["whale breach", "elephant dust sunset", "owl snow", "flamingo flock aerial"],
+    "flora":          ["ancient forest fog", "cherry blossom night", "bristlecone pine", "lavender field storm"],
+    "intimate":       ["frost macro", "ice crystal detail", "feather macro", "raindrop leaf"],
+    "interior":       ["library hall", "opera house ceiling", "greenhouse light", "cathedral rose window interior"],
+    "industrial":     ["steel mill pour", "radio telescope array", "dam spillway", "abandoned power plant"],
+    "underwater":     ["kelp forest light", "coral reef wide", "freediver cave", "whale shark silhouette"],
+    "human":          ["monk temple morning", "fisherman fog lake", "shepherd mountain storm", "market lantern night"],
+}
+ART_REGISTERS = {"fine art", "illustration"}
 
-def load_config() -> dict:
-    with open(BASE / "config.json") as f:
-        return json.load(f)
-
-
-def load_seen() -> set:
-    if SEEN_FILE.exists():
-        return set(SEEN_FILE.read_text().split())
-    return set()
-
-
-def save_seen(seen: set) -> None:
-    # Cap the ledger so it never grows unbounded across years of daily runs.
-    SEEN_FILE.write_text("\n".join(list(seen)[-5000:]))
-
-
-def load_meta() -> dict:
-    if META_FILE.exists():
-        with open(META_FILE) as f:
-            return json.load(f)
-    return {}
-
-
-def save_meta(meta: dict) -> None:
-    with open(META_FILE, "w") as f:
-        json.dump(meta, f, indent=1, ensure_ascii=False)
-
-
-def strip_html(s: str) -> str:
-    return re.sub(r"<[^>]+>", "", s).strip()
-
-
-# Fetch-layer junk filter, per repeated curator run-notes: archival document
-# digitizations and event photography keep surviving the search queries and
-# wasting curation slots.
+# Fetch-layer junk filter: archival document photography and event coverage
+# that free-text search keeps returning.
 DOC_WORDS = re.compile(
-    r"scan|folio|codex|atlas|gazetteer|newspaper|manuscript|sheet music|score"
-    r"|title page|text page|diagram|annotated|halftone|microfilm"
-    r"|concert|festival|championship|tournament|gymnastics|stadium|press conference"
-    r"|songbook|libretto|hymnal|endpaper|binding|gallica|btv1b|partition de",
+    r"scan|folio|codex|atlas page|gazetteer|newspaper|manuscript|sheet music|score"
+    r"|title page|text page|diagram|annotated|halftone|microfilm|songbook|libretto"
+    r"|endpaper|binding|gallica|btv1b|concert|festival|championship|tournament"
+    r"|stadium|press conference|ceremony|banquet|specimen|watermark",
     re.I,
 )
 
 
-def looks_like_document(title: str) -> bool:
-    return bool(DOC_WORDS.search(title))
+# ---------------------------------------------------------------- state ----
+
+def load_json(path: Path, default):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return default
 
 
-def dup_key(title: str) -> str:
-    """Same-subject key so one fetch run doesn't queue near-duplicate frames
-    (e.g. two Portland Head Light shots in one batch)."""
-    return re.sub(r"\W+", "", title.lower())[:16]
+def save_json(path: Path, data) -> None:
+    path.write_text(json.dumps(data, indent=1, ensure_ascii=False))
 
 
-def pick_topics(cfg: dict) -> list:
-    """Cycle through the full topic list across fetches instead of sampling:
-    a persisted shuffled order advances by topics_per_fetch each run, and
-    reshuffles once exhausted, so every topic gets covered before any repeats."""
-    state_file = BASE / "topic_cycle.json"
-    # The curator gardens explore_topics.txt: experimental searches probing
-    # outside the learned taste profile. They join the cycle like any topic.
-    explore_file = BASE / "explore_topics.txt"
-    extra = []
-    if explore_file.exists():
-        extra = [l.strip() for l in explore_file.read_text().splitlines()
-                 if l.strip() and not l.startswith("#")]
-    topics = list(dict.fromkeys(cfg["topics"] + extra))
-    n = min(cfg["topics_per_fetch"], len(topics))
-    state = {}
-    if state_file.exists():
-        state = json.loads(state_file.read_text())
-    if sorted(state.get("order", [])) != sorted(topics):
-        state = {"order": random.sample(topics, len(topics)), "pos": 0}
-    picked = []
-    while len(picked) < n:
-        if state["pos"] >= len(state["order"]):
-            state = {"order": random.sample(topics, len(topics)), "pos": 0}
-        picked.append(state["order"][state["pos"]])
-        state["pos"] += 1
-    state_file.write_text(json.dumps(state))
-    return picked
+def ledger_queries() -> set:
+    out = set()
+    try:
+        for line in open(BASE / "queries.jsonl"):
+            out.add(json.loads(line)["query"].lower())
+    except OSError:
+        pass
+    return out
 
 
-def http_json(url: str) -> dict:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.load(resp)
+def ledger_add(query: str, register: str, source: str, purpose: str, yielded: int) -> None:
+    with open(BASE / "queries.jsonl", "a") as f:
+        f.write(json.dumps({
+            "ts": int(time.time()), "query": query, "register": register,
+            "source": source, "purpose": purpose, "yield": yielded,
+        }) + "\n")
 
 
-def download(url: str, dest: Path) -> None:
-    """Download with backoff — the Commons thumbnail scaler 429s aggressively."""
+# ----------------------------------------------------------------- plan ----
+
+def source_for(register: str) -> str:
+    if register in ART_REGISTERS:
+        return random.choice(["met", "aic"])
+    if register == "science":
+        return random.choice(["nasa", "commons"])
+    return random.choice(["unsplash", "unsplash", "commons"])
+
+
+def bootstrap_plan(cfg: dict) -> list:
+    """Six queries from the bandit: four exploit arms by Thompson sampling,
+    two surprise arms = least pulled. Seed phrases not yet in the ledger."""
+    bandit = load_json(BASE / "bandit.json", {})
+    used = ledger_queries()
+    draws = {r: random.betavariate(bandit.get(r, {}).get("alpha", 1), bandit.get(r, {}).get("beta", 1))
+             for r in REGISTERS}
+    exploit = sorted(draws, key=draws.get, reverse=True)[:4]
+    by_pulls = sorted(REGISTERS, key=lambda r: bandit.get(r, {}).get("pulls", 0))
+    surprise = [r for r in by_pulls if r not in exploit][:2]
+    plan = []
+    for r, purpose in [(r, "exploit") for r in exploit] + [(r, "surprise") for r in surprise]:
+        fresh = [q for q in REGISTERS[r] if q.lower() not in used]
+        q = random.choice(fresh) if fresh else random.choice(REGISTERS[r]) + " " + random.choice(["dawn", "dusk", "winter", "aerial"])
+        plan.append({"query": q, "register": r, "source": source_for(r), "purpose": purpose})
+    return plan
+
+
+def load_plan(cfg: dict) -> list:
+    plan_file = BASE / "plan.json"
+    plan = load_json(plan_file, None)
+    if plan:
+        plan_file.unlink(missing_ok=True)
+        used = ledger_queries()
+        plan = [p for p in plan if p.get("query", "").lower() not in used and p.get("register") in REGISTERS][:8]
+        for p in plan:
+            p.setdefault("source", source_for(p["register"]))
+            p.setdefault("purpose", "exploit")
+        if plan:
+            return plan
+    return bootstrap_plan(cfg)
+
+
+# -------------------------------------------------------------- sources ----
+
+def http_json(url: str, headers=None) -> dict:
+    req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)
+
+
+def download(url: str, dest: Path, headers=None) -> None:
     delay = 5
     for attempt in range(4):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as f:
-                while chunk := resp.read(1 << 16):
+            req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
+            with urllib.request.urlopen(req, timeout=180) as r, open(dest, "wb") as f:
+                while chunk := r.read(1 << 16):
                     f.write(chunk)
             return
         except urllib.error.HTTPError as e:
@@ -142,294 +175,191 @@ def download(url: str, dest: Path) -> None:
             delay *= 3
 
 
-def commons_search(topic: str, pool, width: int = 5120, limit: int = 30, sort: str = "random") -> list:
-    """Search Commons for images matching `topic`, optionally inside a curated
-    pool category. sort='relevance' suits named artworks; 'random' suits broad
-    photo topics."""
-    search = f'{topic} incategory:"{pool}"' if pool else topic
-    params = urllib.parse.urlencode(
-        {
-            "action": "query",
-            "format": "json",
-            "generator": "search",
-            "gsrsearch": search,
-            "gsrnamespace": 6,
-            "gsrlimit": limit,
-            "gsrsort": "random",
-            "prop": "imageinfo",
-            "iiprop": "url|size|mime|extmetadata",
-            "iiurlwidth": width,
-        }
-    )
-    data = http_json(f"{COMMONS_API}?{params}")
-    return list(data.get("query", {}).get("pages", {}).values())
+def image_size(path: Path) -> tuple:
+    out = subprocess.run(["/usr/bin/sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)],
+                         capture_output=True, text=True).stdout
+    w = re.search(r"pixelWidth: (\d+)", out)
+    h = re.search(r"pixelHeight: (\d+)", out)
+    return (int(w.group(1)), int(h.group(1))) if w and h else (0, 0)
 
 
-def topical(title: str, topic: str) -> bool:
-    """Require a topic word in the file title — full-text search also matches
-    descriptions, which is how a politician's portrait once matched 'opera house'."""
-    words = [w for w in re.split(r"\W+", topic.lower()) if len(w) >= 4]
-    words = words or topic.lower().split()
-    return any(w in title.lower() for w in words)
+def cand(key, url, title, credit, source, page, kind="photo", headers=None) -> dict:
+    return {"key": key, "url": url, "title": title or "", "credit": credit,
+            "source": source, "page": page, "kind": kind, "headers": headers}
 
 
-def acceptable(info: dict, cfg: dict) -> bool:
-    w, h = info.get("width", 0), info.get("height", 1)
-    if info.get("mime") not in ("image/jpeg", "image/png"):
-        return False
-    if w < cfg["min_width"]:
-        return False
-    aspect = w / h
-    return cfg["min_aspect"] <= aspect <= cfg["max_aspect"]
-
-
-def commons_meta(page: dict, info: dict) -> dict:
-    """Caption metadata for a Commons page: place-ish title, artist, short link."""
-    title = re.sub(r"^File:", "", page.get("title", ""))
-    title = re.sub(r"\.[A-Za-z]+$", "", title)
-    ext = info.get("extmetadata", {})
-    artist = strip_html(ext.get("Artist", {}).get("value", "")) or "Unknown"
-    url = info.get("descriptionshorturl") or info.get("descriptionurl", "")
-    return {"title": title, "credit": artist, "url": url, "source": "Wikimedia Commons"}
-
-
-def fetch_topic_commons(topic: str, cfg: dict, seen: set, meta: dict, run_titles: set) -> int:
-    """Download up to images_per_topic new images for one topic. Returns count."""
-    # "featured_only" keeps the pool to award-tier Featured Pictures (community-
-    # voted, ~0.1% of Commons). "featured_then_quality" adds the larger but more
-    # ordinary Quality-images pool as a fallback when a topic runs dry.
-    pools = ["Featured pictures on Wikimedia Commons"]
-    if cfg.get("quality_pool") == "featured_then_quality":
-        pools.append("Quality images")
-    got = 0
-    for pool in pools:
-        if got >= cfg["images_per_topic"]:
-            break
-        try:
-            pages = commons_search(topic, pool, width=cfg.get("download_width", 5120))
-        except Exception as e:  # network hiccup on one pool shouldn't kill the run
-            print(f"  search failed for {topic!r} in {pool!r}: {e}", file=sys.stderr)
+def src_unsplash(q: str, cfg: dict) -> list:
+    key = cfg.get("unsplash_access_key")
+    if not key:
+        return []
+    auth = {"Authorization": f"Client-ID {key}"}
+    page = random.randint(1, 3)
+    params = urllib.parse.urlencode({"query": q, "orientation": "landscape", "per_page": 30,
+                                     "page": page, "content_filter": "high"})
+    data = http_json(f"https://api.unsplash.com/search/photos?{params}", auth)
+    out = []
+    for p in data.get("results", []):
+        if p.get("width", 0) < cfg.get("min_width", 3840):
             continue
-        random.shuffle(pages)
-        for page in pages:
-            if got >= cfg["images_per_topic"]:
-                break
-            key = f"commons:{page['pageid']}"
-            info = (page.get("imageinfo") or [{}])[0]
-            title = page.get("title", "")
-            if key in seen or not acceptable(info, cfg):
-                continue
-            if not topical(title, topic) or looks_like_document(title):
-                continue
-            if dup_key(title) in run_titles:
-                continue
-            run_titles.add(dup_key(title))
-            url = info.get("thumburl") or info.get("url")
-            if not url:
-                continue
-            ext = ".png" if info.get("mime") == "image/png" else ".jpg"
-            name = hashlib.sha1(key.encode()).hexdigest()[:16] + ext
-            time.sleep(3)  # pace every attempt — the scaler rate-limits by IP
-            try:
-                download(url, QUEUE / name)
-            except Exception as e:
-                print(f"  download failed {url}: {e}", file=sys.stderr)
-                continue
-            seen.add(key)
-            meta[name] = commons_meta(page, info)
-            got += 1
-            print(f"  + {page['title']} -> {name}")
-    return got
+        title = p.get("description") or p.get("alt_description") or q
+        out.append(cand(f"unsplash:{p['id']}",
+                        p["urls"]["raw"] + f"&w={cfg.get('download_width', 5120)}&q=90&fm=jpg",
+                        title[:1].upper() + title[1:], p.get("user", {}).get("name", "Unknown"),
+                        "Unsplash", p.get("links", {}).get("html", ""), "photo", auth))
+    return out
 
 
-def unsplash_meta(photo: dict, detail: dict, topic: str) -> dict:
-    """Caption metadata for an Unsplash photo; the per-photo endpoint carries
-    location info that search results lack."""
-    loc = (detail or {}).get("location") or {}
-    place = loc.get("name") or ", ".join(p for p in (loc.get("city"), loc.get("country")) if p)
-    desc = (detail or photo).get("description") or photo.get("alt_description") or ""
-    title = place or (desc[:1].upper() + desc[1:] if desc else topic.title())
-    return {
-        "title": title,
-        "credit": photo.get("user", {}).get("name", "Unknown"),
-        "url": photo.get("links", {}).get("html", ""),
-        "source": "Unsplash",
-        "likes": photo.get("likes", 0),
-    }
+def src_commons(q: str, cfg: dict) -> list:
+    params = urllib.parse.urlencode({
+        "action": "query", "format": "json", "generator": "search",
+        "gsrsearch": f'{q} incategory:"Featured pictures on Wikimedia Commons"',
+        "gsrnamespace": 6, "gsrlimit": 30, "gsrsort": "random",
+        "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata",
+        "iiurlwidth": cfg.get("download_width", 5120),
+    })
+    data = http_json(f"https://commons.wikimedia.org/w/api.php?{params}")
+    out = []
+    for p in data.get("query", {}).get("pages", {}).values():
+        info = (p.get("imageinfo") or [{}])[0]
+        if info.get("mime") not in ("image/jpeg", "image/png"):
+            continue
+        if info.get("width", 0) < cfg.get("min_width", 3840):
+            continue
+        title = re.sub(r"^File:|\.[A-Za-z]+$", "", p.get("title", ""))
+        artist = re.sub(r"<[^>]+>", "", info.get("extmetadata", {}).get("Artist", {}).get("value", "")).strip()
+        out.append(cand(f"commons:{p['pageid']}", info.get("thumburl") or info.get("url"),
+                        title, artist or "Unknown", "Wikimedia Commons",
+                        info.get("descriptionshorturl", "")))
+    return out
 
 
-def acceptable_art(info: dict, cfg: dict) -> bool:
-    """Art scans skip the aspect gate (portrait works get gallery-matted) but
-    must be big enough to survive display scaling."""
-    if info.get("mime") not in ("image/jpeg", "image/png"):
+def src_met(q: str, cfg: dict) -> list:
+    params = urllib.parse.urlencode({"q": q, "hasImages": "true", "isPublicDomain": "true", "isHighlight": "true"})
+    ids = (http_json(f"https://collectionapi.metmuseum.org/public/collection/v1/search?{params}").get("objectIDs") or [])
+    random.shuffle(ids)
+    out = []
+    for oid in ids[:12]:
+        o = http_json(f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{oid}")
+        if not o.get("primaryImage"):
+            continue
+        credit = ", ".join(x for x in (o.get("artistDisplayName"), o.get("objectDate")) if x) or "The Met"
+        out.append(cand(f"met:{oid}", o["primaryImage"], o.get("title", q), credit,
+                        "The Met", o.get("objectURL", ""), "art"))
+        time.sleep(0.3)
+    return out
+
+
+def src_aic(q: str, cfg: dict) -> list:
+    params = urllib.parse.urlencode({"q": q, "limit": 25,
+                                     "fields": "id,title,artist_display,date_display,image_id,is_public_domain"})
+    data = http_json(f"https://api.artic.edu/api/v1/artworks/search?{params}&query[term][is_public_domain]=true")
+    out = []
+    w = cfg.get("download_width", 5120)
+    for a in data.get("data", []):
+        if not a.get("image_id"):
+            continue
+        artist = (a.get("artist_display") or "").split("\n")[0]
+        credit = ", ".join(x for x in (artist, a.get("date_display")) if x) or "Art Institute of Chicago"
+        out.append(cand(f"aic:{a['id']}",
+                        f"https://www.artic.edu/iiif/2/{a['image_id']}/full/!{w},{w}/0/default.jpg",
+                        a.get("title", q), credit, "Art Institute of Chicago",
+                        f"https://www.artic.edu/artworks/{a['id']}", "art"))
+    return out
+
+
+def src_nasa(q: str, cfg: dict) -> list:
+    params = urllib.parse.urlencode({"q": q, "media_type": "image", "page_size": 30})
+    data = http_json(f"https://images-api.nasa.gov/search?{params}")
+    out = []
+    items = data.get("collection", {}).get("items", [])
+    random.shuffle(items)
+    for it in items[:10]:
+        d = it["data"][0]
+        nasa_id = d["nasa_id"]
+        assets = http_json(f"https://images-api.nasa.gov/asset/{nasa_id}").get("collection", {}).get("items", [])
+        urls = [a["href"] for a in assets if a["href"].lower().endswith((".jpg", ".png"))]
+        big = next((u for u in urls if "~orig" in u), None) or next((u for u in urls if "~large" in u), None)
+        if not big:
+            continue
+        out.append(cand(f"nasa:{nasa_id}", big, d.get("title", q),
+                        d.get("secondary_creator") or d.get("center") or "NASA", "NASA",
+                        f"https://images.nasa.gov/details/{nasa_id}", "science"))
+        time.sleep(0.3)
+    return out
+
+
+SOURCES = {"unsplash": src_unsplash, "commons": src_commons, "met": src_met, "aic": src_aic, "nasa": src_nasa}
+
+
+# ------------------------------------------------------------------ run ----
+
+def acceptable_file(path: Path, kind: str, cfg: dict) -> bool:
+    w, h = image_size(path)
+    if w == 0 or h == 0:
         return False
-    return max(info.get("width", 0), info.get("height", 0)) >= cfg.get("art_min_dimension", 2400)
+    if kind == "photo":
+        return w >= cfg.get("min_width", 3840) and cfg.get("min_aspect", 1.2) <= w / h <= cfg.get("max_aspect", 2.5)
+    return max(w, h) >= cfg.get("art_min_dimension", 2400)
 
 
-def fetch_topic_art(topic: str, cfg: dict, seen: set, meta: dict, run_titles: set) -> int:
-    """Fine-art path: relevance-ranked Commons search across the whole corpus
-    (museum scans usually aren't Featured Pictures). The curation pass judges
-    reproduction quality by eye."""
+def run_query(item: dict, cfg: dict, seen: set, meta: dict, run_subjects: set) -> int:
+    q, register, source, purpose = item["query"], item["register"], item["source"], item.get("purpose", "exploit")
+    fn = SOURCES.get(source, src_unsplash)
     try:
-        pages = commons_search(topic, None, width=cfg.get("download_width", 5120), sort="relevance")
+        cands = fn(q, cfg)
     except Exception as e:
-        print(f"  art search failed for {topic!r}: {e}", file=sys.stderr)
-        return 0
+        print(f"  {source} search failed for {q!r}: {e}", file=sys.stderr)
+        cands = []
+    random.shuffle(cands)
     got = 0
-    for page in pages:
-        if got >= 2:
+    for c in cands:
+        if got >= cfg.get("images_per_query", 3):
             break
-        key = f"commons:{page['pageid']}"
-        info = (page.get("imageinfo") or [{}])[0]
-        title = page.get("title", "")
-        if key in seen or not acceptable_art(info, cfg):
+        if c["key"] in seen or DOC_WORDS.search(c["title"]):
             continue
-        if looks_like_document(title) or dup_key(title) in run_titles:
+        subject = re.sub(r"\W+", "", c["title"].lower())[:16]
+        if subject in run_subjects:
             continue
-        run_titles.add(dup_key(title))
-        url = info.get("thumburl") or info.get("url")
-        if not url:
-            continue
-        ext = ".png" if info.get("mime") == "image/png" else ".jpg"
-        name = hashlib.sha1(key.encode()).hexdigest()[:16] + ext
-        time.sleep(3)
+        name = hashlib.sha1(c["key"].encode()).hexdigest()[:16] + ".jpg"
+        dest = QUEUE / name
+        time.sleep(1.5)
         try:
-            download(url, QUEUE / name)
+            download(c["url"], dest, c.get("headers"))
         except Exception as e:
-            print(f"  download failed {url}: {e}", file=sys.stderr)
+            print(f"  download failed {c['url'][:80]}: {e}", file=sys.stderr)
             continue
-        seen.add(key)
-        meta[name] = {**commons_meta(page, info), "kind": "art"}
+        if not acceptable_file(dest, c["kind"], cfg):
+            dest.unlink(missing_ok=True)
+            continue
+        seen.add(c["key"])
+        run_subjects.add(subject)
+        meta[name] = {"title": c["title"], "credit": c["credit"], "url": c["page"],
+                      "source": c["source"], "kind": c["kind"], "register": register,
+                      "purpose": purpose, "query": q}
         got += 1
-        print(f"  + {page['title']} -> {name}")
+        print(f"  + [{source}/{register}/{purpose}] {c['title'][:70]} -> {name}")
     return got
-
-
-def fetch_topic_unsplash(topic: str, cfg: dict, seen: set, meta: dict, run_titles: set, explore: bool = False) -> int:
-    """Unsplash official API path, used only when an access key is configured.
-
-    Awe filter: results are taken in descending like-count order, and anything
-    under `unsplash_min_likes` is skipped — crowd validation is the best proxy
-    the API offers for "stunning" vs "someone's decent photo".
-    """
-    # Explore probes are niche by design; the mainstream like-floor starves
-    # them (seven straight runs with zero candidates). The curator's eyes are
-    # the real quality gate, so exploration gets a lower one.
-    min_likes = cfg.get("explore_min_likes", 50) if explore else cfg.get("unsplash_min_likes", 0)
-    auth = {"User-Agent": USER_AGENT, "Authorization": f"Client-ID {cfg['unsplash_access_key']}"}
-    # Page deeper than the top 30: after weeks of daily fetches the head of
-    # every topic is already in seen.txt and single-page queries run dry.
-    results = []
-    for page in range(1, cfg.get("fetch_pages", 2) + 1):
-        params = urllib.parse.urlencode(
-            {"query": topic, "orientation": "landscape", "per_page": 30,
-             "page": page, "content_filter": "high"}
-        )
-        req = urllib.request.Request(f"https://api.unsplash.com/search/photos?{params}", headers=auth)
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            batch = json.load(resp).get("results", [])
-        results.extend(batch)
-        if len(batch) < 30:
-            break
-    results.sort(key=lambda p: p.get("likes", 0), reverse=True)
-    got = 0
-    for photo in results:
-        if got >= cfg["images_per_topic"]:
-            break
-        key = f"unsplash:{photo['id']}"
-        if (
-            key in seen
-            or photo.get("width", 0) < cfg["min_width"]
-            or photo.get("likes", 0) < min_likes
-        ):
-            continue
-        subject = photo.get("alt_description") or photo.get("description") or photo["id"]
-        if dup_key(subject) in run_titles:
-            continue
-        run_titles.add(dup_key(subject))
-        raw = photo["urls"]["raw"] + f"&w={cfg.get('download_width', 5120)}&q=90&fm=jpg"
-        name = hashlib.sha1(key.encode()).hexdigest()[:16] + ".jpg"
-        try:
-            download(raw, QUEUE / name)
-        except Exception as e:
-            print(f"  download failed {raw}: {e}", file=sys.stderr)
-            continue
-        # Unsplash API guidelines ask apps to ping download_location per download.
-        try:
-            loc = photo.get("links", {}).get("download_location")
-            if loc:
-                urllib.request.urlopen(urllib.request.Request(loc, headers=auth), timeout=15).read()
-        except Exception:
-            pass
-        detail = None
-        try:
-            req = urllib.request.Request(
-                f"https://api.unsplash.com/photos/{photo['id']}", headers=auth
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                detail = json.load(resp)
-        except Exception:
-            pass  # caption falls back to search-result fields
-        seen.add(key)
-        meta[name] = unsplash_meta(photo, detail, topic)
-        got += 1
-        print(f"  + unsplash {photo['id']} ({photo.get('likes', 0)} likes) -> {name}")
-    return got
-
-
-def prune(cfg: dict, meta: dict) -> None:
-    """Keep the collection bounded; drop the oldest files (and their caption
-    copies and metadata) first."""
-    files = sorted(IMAGES.glob("*.[jp]*g"), key=lambda p: p.stat().st_mtime)
-    excess = len(files) - cfg["max_images_kept"]
-    for p in files[:max(0, excess)]:
-        p.unlink()
-        (IMAGES / ".display" / p.name).unlink(missing_ok=True)
-        meta.pop(p.name, None)
-        print(f"  - pruned {p.name}")
-
-
-def run_curation() -> None:
-    """Hand the queue to the Claude curation pass (which also composes
-    captions for whatever it promotes)."""
-    subprocess.run(["/bin/bash", str(BASE / "curate.sh")], check=False)
-    subprocess.run(["/bin/bash", str(BASE / "publish.sh")], check=False)
 
 
 def main() -> None:
-    cfg = load_config()
-    seen = load_seen()
-    meta = load_meta()
-    IMAGES.mkdir(parents=True, exist_ok=True)
+    cfg = load_json(BASE / "config.json", {})
+    seen = set((BASE / "seen.txt").read_text().split()) if (BASE / "seen.txt").exists() else set()
+    meta = load_json(BASE / "meta.json", {})
     QUEUE.mkdir(parents=True, exist_ok=True)
-    topics = pick_topics(cfg)
-    explore_file = BASE / "explore_topics.txt"
-    explore_set = set()
-    if explore_file.exists():
-        explore_set = {l.strip() for l in explore_file.read_text().splitlines()
-                       if l.strip() and not l.startswith("#")}
+    plan = load_plan(cfg)
     total = 0
-    run_titles = set()
-    use_unsplash = bool(cfg.get("unsplash_access_key"))
-    for topic in topics:
-        if topic.startswith("art:"):
-            print(f"fetching: {topic} (commons art)")
-            total += fetch_topic_art(topic[4:].strip(), cfg, seen, meta, run_titles)
-            continue
-        print(f"fetching: {topic} ({'unsplash' if use_unsplash else 'wikimedia commons'})")
-        if use_unsplash:
-            try:
-                total += fetch_topic_unsplash(topic, cfg, seen, meta, run_titles, explore=topic in explore_set)
-                continue
-            except Exception as e:
-                print(f"  unsplash failed ({e}); falling back to commons", file=sys.stderr)
-        total += fetch_topic_commons(topic, cfg, seen, meta, run_titles)
-    save_seen(seen)
-    prune(cfg, meta)
-    save_meta(meta)
-    print(f"done: {total} new images queued for curation")
+    run_subjects = set()
+    for item in plan:
+        print(f"query: {item['query']!r} [{item['source']}/{item['register']}/{item.get('purpose')}]")
+        n = run_query(item, cfg, seen, meta, run_subjects)
+        ledger_add(item["query"], item["register"], item["source"], item.get("purpose", "exploit"), n)
+        total += n
+    (BASE / "seen.txt").write_text("\n".join(list(seen)[-8000:]))
+    save_json(BASE / "meta.json", meta)
+    print(f"done: {total} candidates queued")
     sys.stdout.flush()
-    run_curation()
+    if "--no-curate" not in sys.argv:
+        subprocess.run(["/bin/bash", str(BASE / "curate.sh")], check=False)
 
 
 if __name__ == "__main__":

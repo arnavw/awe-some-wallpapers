@@ -1,18 +1,16 @@
 #!/bin/bash
-# wp — WorldWallpapers control.
-#   wp          next wallpaper (aliases: next, skip, n)
-#   wp love     strong positive signal on the current photo (teaches the curator)
-#   wp interesting  middle signal: engages the mind, doesn't move you
-#   wp meh      soft negative signal (kept, but the curator learns)
-#   wp ban      delete the current image forever and skip to the next
-#   wp info     show place / photographer / link for the current wallpaper
-#   wp open     open the current photo's source page in the browser
-#   wp curate   run a Claude curation pass over the queue now
-#   wp fetch    pull fresh images now (they queue for curation)
-#
-# Every command is logged to wp_log.jsonl with the image it acted on and how
-# long that image had been on screen — the curator reads this to learn taste.
-
+# wp — control the wallpaper curator.
+#   wp / wp skip    next wallpaper
+#   wp love         it moved you (strongest signal)
+#   wp interesting  it engaged you without moving you
+#   wp meh          it left you cold (image stays)
+#   wp ban          never again, skip ahead
+#   wp info / open  what is this, and open its source page
+#   wp fetch        intake + curation now
+#   wp curate       curation over the current queue
+#   wp seed         (re)establish the macOS grant for the stable wallpaper file
+#   wp status       pool, queue, bandit, next up
+# Every reaction is logged with the image it targets and its on-screen dwell.
 set -euo pipefail
 BASE="$HOME/.wallpaper-rotator"
 cmd="${1:-next}"
@@ -35,46 +33,25 @@ EOF
 }
 
 case "$cmd" in
-  next|skip|n)
-    log_action
-    bash "$BASE/rotate.sh"
-    ;;
-  love)
-    log_action
-    echo "noted: loved $(basename "$(cat "$BASE/current.txt")")"
-    "$BASE/info.sh"
-    ;;
-  interesting|inter)
-    log_action
-    echo "noted: interesting — engages, doesn't move (the curator learns the difference)"
-    ;;
-  meh)
-    log_action
-    echo "noted: meh — the curator will learn from this"
-    ;;
+  next|skip|n)   log_action; bash "$BASE/rotate.sh" ;;
+  love)          log_action; echo "noted: loved"; "$BASE/info.sh" ;;
+  interesting|inter) log_action; echo "noted: interesting" ;;
+  meh)           log_action; echo "noted: meh" ;;
   ban)
     log_action
-    current=$(cat "$BASE/current.txt")
-    name=$(basename "$current")
+    current=$(cat "$BASE/current.txt"); name=$(basename "$current")
     rm -f "$current" "$HOME/Pictures/WorldWallpapers/.display/$name"
-    echo "banned $name"
-    bash "$BASE/rotate.sh"
-    ;;
-  info)
-    "$BASE/info.sh"
-    ;;
-  open)
-    log_action
-    "$BASE/info.sh" open
-    ;;
-  curate)
-    bash "$BASE/curate.sh"
-    ;;
-  fetch)
-    /usr/bin/python3 "$BASE/fetch.py"
-    ;;
-  *)
-    sed -n '2,13p' "$0"
-    exit 1
-    ;;
+    echo "banned $name"; bash "$BASE/rotate.sh" ;;
+  info)          "$BASE/info.sh" ;;
+  open)          log_action; "$BASE/info.sh" open ;;
+  fetch)         /usr/bin/python3 "$BASE/fetch.py" ;;
+  curate)        bash "$BASE/curate.sh" ;;
+  seed)          bash "$BASE/seed.sh" ;;
+  status)
+    echo "pool:    $(ls "$HOME/Pictures/WorldWallpapers"/*.jpg 2>/dev/null | wc -l | tr -d ' ')"
+    echo "queue:   $(ls "$BASE/queue" 2>/dev/null | wc -l | tr -d ' ')"
+    echo "archive: $(ls "$HOME/Pictures/WorldWallpapers/archive"/*.jpg 2>/dev/null | wc -l | tr -d ' ')"
+    echo "next up: $(head -3 "$BASE/playlist.txt" 2>/dev/null | tr '\n' ' ')"
+    /usr/bin/python3 "$BASE/learn.py" ;;
+  *) sed -n '2,12p' "$0"; exit 1 ;;
 esac
