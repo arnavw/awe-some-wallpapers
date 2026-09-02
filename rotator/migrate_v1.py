@@ -72,11 +72,13 @@ def main() -> None:
                         f.write(json.dumps({"ts": 0, "query": q, "register": "legacy", "source": "legacy", "purpose": "exploit", "yield": 0}) + "\n")
         print(f"query ledger seeded with {len(seen_q)} legacy queries")
 
-    # taste: long diary -> history + fresh summary
+    # taste: long diary -> history + fresh summary. APFS is case-insensitive, so
+    # TASTE.md and taste.md are the same file: detect the v1 diary by content.
     old = BASE / "TASTE.md"
-    if old.exists() and not (BASE / "taste.md").exists():
+    is_v1 = old.exists() and "Seed hypothesis" in old.read_text()
+    if is_v1:
         shutil.copy(old, BASE / "taste_history.md")
-        old.rename(BASE / "TASTE.v1.md")
+        old.unlink()
         (BASE / "taste.md").write_text(
             "# Taste — summary\n\n"
             "Rewrite me: the curator keeps this under twelve bullets, citing log timestamps.\n"
