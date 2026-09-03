@@ -18,7 +18,8 @@ cmd="${1:-next}"
 log_action() {
   local image dwell
   image=$(basename "$(cat "$BASE/current.txt" 2>/dev/null)" 2>/dev/null || true)
-  dwell=$(( $(date +%s) - $(stat -f %m "$BASE/current.txt" 2>/dev/null || date +%s) ))
+  # /usr/bin/stat explicitly: a GNU stat on PATH treats -f as "filesystem"
+  dwell=$(( $(date +%s) - $(/usr/bin/stat -f %m "$BASE/current.txt" 2>/dev/null || date +%s) ))
   /usr/bin/python3 "$BASE/events.py" append reaction "cmd=$cmd" "image=$image" "dwell_s=$dwell" >/dev/null
 }
 
