@@ -12,7 +12,7 @@ STATE="$BASE/current.txt"
 current=""
 [[ -f "$STATE" ]] && current=$(cat "$STATE")
 
-next=$(/usr/bin/python3 "$BASE/next_image.py" "$current" || true)
+next=$(/usr/bin/python3 -I "$BASE/next_image.py" "$current" || true)
 if [[ -z "$next" ]]; then
   echo "$(date '+%F %T') nothing fresh; holding current wallpaper"
   exit 0
@@ -28,7 +28,7 @@ if ! bash "$BASE/apply.sh" "$target"; then
 fi
 
 echo "$next" > "$STATE"
-/usr/bin/python3 "$BASE/events.py" append shown "image=$(basename "$next")" >/dev/null
+/usr/bin/python3 -I "$BASE/events.py" append shown "image=$(basename "$next")" >/dev/null
 
 # Never-repeat: the outgoing wallpaper retires to the keeper archive.
 if [[ -n "$current" && "$current" != "$next" && -f "$current" && "$current" != *"/archive/"* ]]; then

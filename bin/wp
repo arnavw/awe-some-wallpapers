@@ -20,7 +20,7 @@ log_action() {
   image=$(basename "$(cat "$BASE/current.txt" 2>/dev/null)" 2>/dev/null || true)
   # /usr/bin/stat explicitly: a GNU stat on PATH treats -f as "filesystem"
   dwell=$(( $(date +%s) - $(/usr/bin/stat -f %m "$BASE/current.txt" 2>/dev/null || date +%s) ))
-  /usr/bin/python3 "$BASE/events.py" append reaction "cmd=$cmd" "image=$image" "dwell_s=$dwell" >/dev/null
+  /usr/bin/python3 -I "$BASE/events.py" append reaction "cmd=$cmd" "image=$image" "dwell_s=$dwell" >/dev/null
 }
 
 case "$cmd" in
@@ -35,7 +35,7 @@ case "$cmd" in
     echo "banned $name"; bash "$BASE/rotate.sh" ;;
   info)          "$BASE/info.sh" ;;
   open)          log_action; "$BASE/info.sh" open ;;
-  fetch)         /usr/bin/python3 "$BASE/fetch.py" ;;
+  fetch)         /usr/bin/python3 -I "$BASE/fetch.py" ;;
   curate)        bash "$BASE/curate.sh" ;;
   seed)          bash "$BASE/seed.sh" ;;
   undo)  # correct the last reaction: wp undo love|interesting|meh  (re-labels it)
@@ -49,12 +49,12 @@ append("correction", ref_ts=last["ts"], field="cmd", value=new)
 print(f"corrected: {last['cmd']} -> {new} on {last.get('image')}")
 EOF
     ;;
-  events)        /usr/bin/python3 "$BASE/events.py" tail "${2:-15}" ;;
+  events)        /usr/bin/python3 -I "$BASE/events.py" tail "${2:-15}" ;;
   status)
     echo "pool:    $(ls "$HOME/Pictures/WorldWallpapers"/*.jpg 2>/dev/null | wc -l | tr -d ' ')"
     echo "queue:   $(ls "$BASE/queue" 2>/dev/null | wc -l | tr -d ' ')"
     echo "archive: $(ls "$HOME/Pictures/WorldWallpapers/archive"/*.jpg 2>/dev/null | wc -l | tr -d ' ')"
     echo "next up: $(head -3 "$BASE/playlist.txt" 2>/dev/null | tr '\n' ' ')"
-    /usr/bin/python3 "$BASE/learn.py" ;;
+    /usr/bin/python3 -I "$BASE/learn.py" ;;
   *) sed -n '2,12p' "$0"; exit 1 ;;
 esac
