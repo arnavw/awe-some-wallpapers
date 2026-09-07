@@ -39,7 +39,7 @@ case "$cmd" in
   curate)        bash "$BASE/curate.sh" ;;
   seed)          bash "$BASE/seed.sh" ;;
   undo)  # correct the last reaction: wp undo love|interesting|meh  (re-labels it)
-    /usr/bin/python3 - "${2:-}" <<'EOF'
+    /usr/bin/python3 -I - "${2:-}" <<'EOF'
 import sys
 sys.path.insert(0, __import__("os").path.expanduser("~/.wallpaper-rotator"))
 from events import load, append
