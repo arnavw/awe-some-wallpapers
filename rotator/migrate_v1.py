@@ -106,7 +106,8 @@ def main() -> None:
               "explore_min_likes", "fetch_pages", "display_aspects"):
         cfg.pop(k, None)
     cfg.setdefault("images_per_query", 3)
-    cfg.setdefault("curator_model", "claude-fable-5")
+    cfg.setdefault("curator_model", "claude-opus-5-5")
+    cfg.setdefault("curator_effort", "xhigh")
     cfg_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
     print("config slimmed; v1 topic files renamed *.v1")
 

@@ -15,10 +15,17 @@ if [[ ${#queued[@]} -eq 0 ]]; then
 fi
 
 CLAUDE=$(command -v claude || echo "$HOME/.local/bin/claude")
-MODEL=$(/usr/bin/python3 -c "import json;print(json.load(open('$BASE/config.json')).get('curator_model','claude-fable-5'))")
-echo "$(date '+%F %T') curating ${#queued[@]} queued images with $MODEL"
+# cfg KEY DEFAULT — one value from config.json
+cfg() {
+  /usr/bin/python3 -c "import json,sys;print(json.load(open('$BASE/config.json')).get(sys.argv[1],sys.argv[2]))" "$1" "$2"
+}
+MODEL=$(cfg curator_model claude-opus-5-5)
+# Opus 5.5 defaults to medium effort; visual judgment wants more, so set it explicitly.
+EFFORT=$(cfg curator_effort xhigh)
+echo "$(date '+%F %T') curating ${#queued[@]} queued images with $MODEL (effort $EFFORT)"
 "$CLAUDE" -p "$(cat "$BASE/CURATOR.md")" \
   --model "$MODEL" \
+  --effort "$EFFORT" \
   --allowedTools "Read,Glob,Write,Edit,Bash(/usr/bin/python3:*)" \
   2>&1
 

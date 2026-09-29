@@ -1,6 +1,6 @@
 # awe-some-wallpapers
 
-Awe-inspiring macOS desktop + lock screen wallpapers, curated for you by Fable.
+Awe-inspiring macOS desktop + lock screen wallpapers, curated for you by Claude.
 
 Awe needs two things: vastness, and something that violates your model of the
 world. A recommender that only learns what you loved gets very good at the

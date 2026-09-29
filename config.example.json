@@ -1,6 +1,7 @@
 {
   "unsplash_access_key": "",
-  "curator_model": "claude-fable-5",
+  "curator_model": "claude-opus-5-5",
+  "curator_effort": "xhigh",
   "images_per_query": 3,
   "min_width": 3840,
   "art_min_dimension": 2400,
