@@ -9,10 +9,13 @@
 #   wp fetch        intake + curation now
 #   wp curate       curation over the current queue
 #   wp seed         (re)establish the macOS grant for the stable wallpaper file
-#   wp status       pool, queue, bandit, next up
+#   wp auth         store a year-long curator token, so curation never needs a login
+#   wp status       curator health, pool, queue, bandit, next up
 # Every reaction is logged with the image it targets and its on-screen dwell.
+# Day-to-day commands end with a warning line while curation is failing.
 set -euo pipefail
 BASE="$HOME/.wallpaper-rotator"
+TOKEN_SERVICE="awe-some-wallpapers.claude-token"   # shared with curate.sh and health.py
 cmd="${1:-next}"
 
 log_action() {
@@ -23,21 +26,41 @@ log_action() {
   /usr/bin/python3 -I "$BASE/events.py" append reaction "cmd=$cmd" "image=$image" "dwell_s=$dwell" >/dev/null
 }
 
+# A health check must never break the command it rides on; its own errors still print.
+warn_health() { /usr/bin/python3 -I "$BASE/health.py" || true; }
+
 case "$cmd" in
-  next|skip|n)   log_action; bash "$BASE/rotate.sh" ;;
-  love)          log_action; echo "noted: loved"; "$BASE/info.sh" ;;
-  interesting|inter) log_action; echo "noted: interesting" ;;
-  meh)           log_action; echo "noted: meh" ;;
+  next|skip|n)   log_action; bash "$BASE/rotate.sh"; warn_health ;;
+  love)          log_action; echo "noted: loved"; "$BASE/info.sh"; warn_health ;;
+  interesting|inter) log_action; echo "noted: interesting"; warn_health ;;
+  meh)           log_action; echo "noted: meh"; warn_health ;;
   ban)
     log_action
     current=$(cat "$BASE/current.txt"); name=$(basename "$current")
     rm -f "$current" "$HOME/Pictures/WorldWallpapers/.display/$name"
-    echo "banned $name"; bash "$BASE/rotate.sh" ;;
-  info)          "$BASE/info.sh" ;;
+    echo "banned $name"; bash "$BASE/rotate.sh"; warn_health ;;
+  info)          "$BASE/info.sh"; warn_health ;;
   open)          log_action; "$BASE/info.sh" open ;;
   fetch)         /usr/bin/python3 -I "$BASE/fetch.py" ;;
   curate)        bash "$BASE/curate.sh" ;;
   seed)          bash "$BASE/seed.sh" ;;
+  auth)  # once a year: a long-lived token for headless curation, kept in the login keychain
+    CLAUDE=$(command -v claude || echo "$HOME/.local/bin/claude")
+    echo "Step 1 of 2: sign in with the account curation should use. Your browser opens."
+    "$CLAUDE" setup-token
+    echo
+    echo "Step 2 of 2: paste the token printed above, twice. Typing is hidden; it goes to your login keychain."
+    /usr/bin/security add-generic-password -U -a "$(id -un)" -s "$TOKEN_SERVICE" \
+      -l "awe-some-wallpapers curator token" -w
+    model=$(/usr/bin/python3 -I -c "import json;print(json.load(open('$BASE/config.json')).get('curator_model','claude-opus-5-5'))")
+    echo "Checking the token against $model..."
+    if out=$(CLAUDE_CODE_OAUTH_TOKEN="$(/usr/bin/security find-generic-password -s "$TOKEN_SERVICE" -w)" \
+             "$CLAUDE" -p "Reply with the single word ok." --model "$model" --effort low 2>&1); then
+      echo "Token works. Scheduled curation now runs on it. To curate right away: wp curate"
+    else
+      echo "Token check failed: $out"
+      exit 1
+    fi ;;
   undo)  # correct the last reaction: wp undo love|interesting|meh  (re-labels it)
     /usr/bin/python3 -I - "${2:-}" <<'EOF'
 import sys
@@ -51,10 +74,11 @@ EOF
     ;;
   events)        /usr/bin/python3 -I "$BASE/events.py" tail "${2:-15}" ;;
   status)
+    /usr/bin/python3 -I "$BASE/health.py" --status
     echo "pool:    $(ls "$HOME/Pictures/WorldWallpapers"/*.jpg 2>/dev/null | wc -l | tr -d ' ')"
     echo "queue:   $(ls "$BASE/queue" 2>/dev/null | wc -l | tr -d ' ')"
     echo "archive: $(ls "$HOME/Pictures/WorldWallpapers/archive"/*.jpg 2>/dev/null | wc -l | tr -d ' ')"
     echo "next up: $(head -3 "$BASE/playlist.txt" 2>/dev/null | tr '\n' ' ')"
     /usr/bin/python3 -I "$BASE/learn.py" ;;
-  *) sed -n '2,12p' "$0"; exit 1 ;;
+  *) sed -n '2,13p' "$0"; exit 1 ;;
 esac

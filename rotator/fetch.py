@@ -12,6 +12,10 @@ Where queries come from, in priority order:
 Every executed query is appended to queries.jsonl and never executed again:
 the ledger is the novelty guarantee at the query level.
 
+Backpressure: while the queue holds max_queue or more unjudged candidates
+(the curator is behind or failing), intake pauses and only the chained
+curation pass runs, so a stalled curator cannot bury itself in downloads.
+
 Sources, chosen per register — all keyless except Unsplash:
   unsplash  photography, relevance-ranked, no like-floor (the curator's eyes
             are the quality gate; ranking by likes only ever found postcards)
@@ -336,11 +340,14 @@ def run_query(item: dict, cfg: dict, seen: set, meta: dict, run_subjects: set) -
     return got
 
 
-def main() -> None:
-    cfg = load_json(BASE / "config.json", {})
+def queued_count() -> int:
+    return sum(1 for p in QUEUE.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png"))
+
+
+def intake(cfg: dict) -> None:
+    """Run one query plan and queue its candidates."""
     seen = set((BASE / "seen.txt").read_text().split()) if (BASE / "seen.txt").exists() else set()
     meta = load_json(BASE / "meta.json", {})
-    QUEUE.mkdir(parents=True, exist_ok=True)
     plan = load_plan(cfg)
     total = 0
     run_subjects = set()
@@ -352,6 +359,17 @@ def main() -> None:
     (BASE / "seen.txt").write_text("\n".join(list(seen)[-8000:]))
     save_json(BASE / "meta.json", meta)
     print(f"done: {total} candidates queued")
+
+
+def main() -> None:
+    cfg = load_json(BASE / "config.json", {})
+    QUEUE.mkdir(parents=True, exist_ok=True)
+    backlog, cap = queued_count(), int(cfg.get("max_queue", 60))
+    if backlog >= cap:
+        print(f"{time.strftime('%F %T')} queue holds {backlog} unjudged candidates "
+              f"(max_queue {cap}); intake paused until curation drains it")
+    else:
+        intake(cfg)
     sys.stdout.flush()
     if "--no-curate" not in sys.argv:
         subprocess.run(["/bin/bash", str(BASE / "curate.sh")], check=False)

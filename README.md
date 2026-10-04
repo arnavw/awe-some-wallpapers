@@ -37,11 +37,12 @@ first and slowly kills the second. This one is built to keep both alive.
 
 ## Install
 
-Requires macOS 14+, [Claude Code](https://claude.com/claude-code) signed in,
-[uv](https://docs.astral.sh/uv/), an Unsplash API key (optional).
+Requires macOS 14+, [Claude Code](https://claude.com/claude-code) on a Claude
+subscription, [uv](https://docs.astral.sh/uv/), an Unsplash API key (optional).
 
 ```bash
 ./install.sh
+wp auth      # year-long curator token; headless runs never need a login
 wp fetch     # first intake + curation
 wp seed      # one-time macOS grant (desktop + lock screen)
 ```
@@ -53,7 +54,8 @@ wp / wp skip    next        wp love         moved you
 wp interesting  engaged you wp meh          left you cold
 wp ban          never again wp info / open  what is this
 wp fetch        intake now  wp curate       curate the queue
-wp seed         re-grant    wp status       pool, queue, bandit
+wp seed         re-grant    wp auth         curator token
+wp status       health, pool, queue, bandit
 ```
 
 State lives in `~/.wallpaper-rotator/` (config, meta, bandit, query ledger,

@@ -61,5 +61,6 @@ plist "com.$USER.wallpaper-fetch" \
 
 echo "Installed."
 echo "1. Put your Unsplash key and contact email in $BASE/config.json"
-echo "2. wp fetch          (first intake + curation)"
-echo "3. wp seed           (one-time macOS grant; desktop + lock screen)"
+echo "2. wp auth           (year-long curator token; headless curation never needs a login)"
+echo "3. wp fetch          (first intake + curation)"
+echo "4. wp seed           (one-time macOS grant; desktop + lock screen)"
