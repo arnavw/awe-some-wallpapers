@@ -9,5 +9,5 @@
   "min_aspect": 1.2,
   "max_aspect": 2.5,
   "max_images_kept": 80,
-  "max_queue": 60
+  "max_queue": 30
 }

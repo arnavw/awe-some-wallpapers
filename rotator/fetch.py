@@ -15,6 +15,8 @@ the ledger is the novelty guarantee at the query level.
 Backpressure: while the queue holds max_queue or more unjudged candidates
 (the curator is behind or failing), intake pauses and only the chained
 curation pass runs, so a stalled curator cannot bury itself in downloads.
+The default of 30 is about two intakes: a queue much larger than that no
+longer fits the curator's view at once, and a recovery run slows several-fold.
 
 Sources, chosen per register — all keyless except Unsplash:
   unsplash  photography, relevance-ranked, no like-floor (the curator's eyes
@@ -378,7 +380,7 @@ def intake(cfg: dict) -> None:
 def main() -> None:
     cfg = load_json(BASE / "config.json", {})
     QUEUE.mkdir(parents=True, exist_ok=True)
-    backlog, cap = queued_count(), int(cfg.get("max_queue", 60))
+    backlog, cap = queued_count(), int(cfg.get("max_queue", 30))
     if backlog >= cap:
         print(f"{time.strftime('%F %T')} queue holds {backlog} unjudged candidates "
               f"(max_queue {cap}); intake paused until curation drains it")
