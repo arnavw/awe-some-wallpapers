@@ -232,19 +232,33 @@ def src_commons(q: str, cfg: dict) -> list:
     return out
 
 
+MET_API = "https://collectionapi.metmuseum.org/public/collection"
+MET_CANDIDATES = 12   # public-domain candidates handed to run_query per query
+MET_LOOKUPS = 36      # object lookups spent finding them
+
+
 def src_met(q: str, cfg: dict) -> list:
-    params = urllib.parse.urlencode({"q": q, "hasImages": "true", "isPublicDomain": "true", "isHighlight": "true"})
-    ids = (http_json(f"https://collectionapi.metmuseum.org/public/collection/v1/search?{params}").get("objectIDs") or [])
+    """Public-domain highlights from The Met matching q, in random order.
+
+    Search is v1.1 (v1 was retired 2026-10-01): paginated at up to 500 IDs per
+    page, which covers nearly every highlights query in one request. It honors
+    hasImages and isHighlight but ignores isPublicDomain, and copyrighted
+    objects carry no primaryImage, so rights are checked on each object.
+    """
+    params = urllib.parse.urlencode({"q": q, "hasImages": "true", "isHighlight": "true", "limit": 500})
+    ids = http_json(f"{MET_API}/v1.1/search?{params}").get("objectIDs") or []
     random.shuffle(ids)
     out = []
-    for oid in ids[:12]:
-        o = http_json(f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{oid}")
-        if not o.get("primaryImage"):
+    for oid in ids[:MET_LOOKUPS]:
+        if len(out) >= MET_CANDIDATES:
+            break
+        o = http_json(f"{MET_API}/v1/objects/{oid}")
+        time.sleep(0.3)
+        if not (o.get("isPublicDomain") and o.get("primaryImage")):
             continue
         credit = ", ".join(x for x in (o.get("artistDisplayName"), o.get("objectDate")) if x) or "The Met"
         out.append(cand(f"met:{oid}", o["primaryImage"], o.get("title", q), credit,
                         "The Met", o.get("objectURL", ""), "art"))
-        time.sleep(0.3)
     return out
 
 
