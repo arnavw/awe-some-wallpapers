@@ -4,7 +4,7 @@
 # fetch.py after every intake; also `wp curate`.
 #
 # Auth. Headless runs use the long-lived token `wp auth` keeps in the login
-# keychain. An exported CLAUDE_CODE_OAUTH_TOKEN outranks every other credential
+# keychain. CLAUDE_CODE_OAUTH_TOKEN in the curator's environment outranks every other credential
 # the CLI can find (its own claude.ai login, shared ~/.config/anthropic
 # profiles), so an interactive login, logout or expired profile can no longer
 # stall curation. With no token stored, the CLI falls back to its own login.
@@ -49,8 +49,14 @@ if [[ ${#queued[@]} -eq 0 ]]; then
   exit 0
 fi
 
+# The curator gets the same minimal environment whether launchd or a terminal
+# started this pass: variables a terminal can carry (ANTHROPIC_BASE_URL,
+# ANTHROPIC_API_KEY, CLAUDECODE, ...) would change which endpoint and identity
+# the CLI uses. wp auth tests tokens in this same environment.
+curator_env=(env -i HOME="$HOME" USER="$(id -un)" LOGNAME="$(id -un)" SHELL="${SHELL:-/bin/zsh}"
+             PATH="/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin" TMPDIR="${TMPDIR:-/tmp/}")
 if token=$(/usr/bin/security find-generic-password -s "$TOKEN_SERVICE" -w 2>/dev/null); then
-  export CLAUDE_CODE_OAUTH_TOKEN="$token"
+  curator_env+=("CLAUDE_CODE_OAUTH_TOKEN=$token")
   auth="stored token"
 else
   rc=$?
@@ -70,7 +76,7 @@ echo "$(date '+%F %T') curating ${#queued[@]} queued images with $MODEL (effort 
 transcript=$(/usr/bin/mktemp -t curate)
 trap 'rm -f "$transcript"' EXIT
 set +e
-"$CLAUDE" -p "$(cat "$BASE/CURATOR.md")" \
+"${curator_env[@]}" "$CLAUDE" -p "$(cat "$BASE/CURATOR.md")" \
   --model "$MODEL" \
   --effort "$EFFORT" \
   --allowedTools "Read,Glob,Write,Edit,Bash(/usr/bin/python3:*)" \

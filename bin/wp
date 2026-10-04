@@ -29,9 +29,8 @@ log_action() {
 # A health check must never break the command it rides on; its own errors still print.
 warn_health() { /usr/bin/python3 -I "$BASE/health.py" || true; }
 
-# read_pasted_token — read a pasted token from stdin without echo, until an empty
-# line or EOF. The CLI wraps long tokens across lines, so every line is joined
-# and all whitespace dropped. Prints the token.
+# read_pasted_token — read a paste from stdin without echo, until an empty line
+# or EOF, every line joined with whitespace dropped. Prints what was pasted.
 read_pasted_token() {
   local token="" line
   while IFS= read -rs line || [[ -n "$line" ]]; do
@@ -40,6 +39,44 @@ read_pasted_token() {
     token+=$line
   done
   printf '%s' "$token"
+}
+
+# recording MODE FILE — read a terminal recording of `claude setup-token`, or a paste.
+#   token  the setup-token token: escapes stripped, wrapped lines rejoined, a
+#          repeated paste collapsed, the last occurrence kept; nothing if absent
+#   tail   the last lines as plain text, to show why a sign-in produced no token
+recording() {
+  /usr/bin/python3 -I - "$@" <<'EOF'
+import re, sys
+mode, path = sys.argv[1], sys.argv[2]
+text = open(path, "rb").read().decode("utf-8", "replace")
+text = re.sub(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)", "", text)        # OSC sequences
+text = re.sub(r"\x1b\[[0-9;?<=>]*[ -/]*[@-~]|\x1b[@-_]", "", text)  # CSI and 2-byte escapes
+if mode == "tail":
+    lines = [l.strip() for l in text.replace("\r", "\n").split("\n") if l.strip()]
+    print("\n".join(lines[-8:]))
+    sys.exit()
+PREFIX = "sk-ant-oat01-"
+starts = [m.start() for m in re.finditer(re.escape(PREFIX), text)]
+tokens = []
+for i, s in enumerate(starts):
+    window = text[s + len(PREFIX): starts[i + 1] if i + 1 < len(starts) else len(text)]
+    cut = window.find("Store this token")      # the line setup-token prints next
+    window = window[:cut] if cut != -1 else window[:600]
+    body = re.match(r"[A-Za-z0-9_-]*", re.sub(r"\s+", "", window)).group(0)
+    if len(body) >= 20:
+        tokens.append(PREFIX + body)
+print(tokens[-1] if tokens else "", end="")
+EOF
+}
+
+# probe_token TOKEN MODEL — one tiny request with TOKEN, in the same minimal
+# environment curate.sh gives the curator. Prints the CLI's output.
+probe_token() {
+  env -i HOME="$HOME" USER="$(id -un)" LOGNAME="$(id -un)" SHELL="${SHELL:-/bin/zsh}" \
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin" TMPDIR="${TMPDIR:-/tmp/}" \
+    CLAUDE_CODE_OAUTH_TOKEN="$1" "$CLAUDE" -p "Reply with the single word ok." \
+    --model "$2" --effort low 2>&1
 }
 
 case "$cmd" in
@@ -59,20 +96,31 @@ case "$cmd" in
   seed)          bash "$BASE/seed.sh" ;;
   auth)  # once a year: a long-lived token for headless curation, kept in the login keychain
     CLAUDE=$(command -v claude || echo "$HOME/.local/bin/claude")
-    echo "Step 1 of 2: sign in with the account curation should use. Your browser opens."
-    "$CLAUDE" setup-token
-    echo
-    echo "Step 2 of 2: copy the whole token above, including any part that wrapped onto the next line."
-    echo "Paste it here, then press Enter on an empty line. Typing is hidden."
-    token=$(read_pasted_token); echo
-    if [[ ! "$token" =~ ^sk-ant-oat01-[A-Za-z0-9_-]{20,}$ ]]; then
-      echo "That does not look like a setup-token token, which starts with sk-ant-oat01-. Nothing stored."
+    model=$(/usr/bin/python3 -I -c "import json;print(json.load(open('$BASE/config.json')).get('curator_model','claude-opus-5-5'))")
+    rec=$(/usr/bin/mktemp -t wp-auth)   # mode 0600; holds the token only until it is read
+    trap '/bin/rm -f "$rec"' EXIT
+    echo "Sign in with the account curation should use: your browser opens, approve it there."
+    # Recorded, so the token is captured without copying; on the terminal's
+    # alternate screen, so it is gone from view and scrollback afterwards.
+    printf '\033[?1049h'
+    /usr/bin/script -q "$rec" "$CLAUDE" setup-token || true   # judged by whether a token came out
+    printf '\033[?1049l'
+    token=$(recording token "$rec")
+    if [[ -z "$token" ]]; then
+      echo "The sign-in produced no token. Its last lines:"
+      recording tail "$rec" | /usr/bin/sed 's/^/  /'
+      : > "$rec"
+      echo "If a token was shown, paste it here, then press Enter on an empty line. Typing is hidden."
+      read_pasted_token > "$rec"; echo
+      token=$(recording token "$rec")
+    fi
+    : > "$rec"
+    if [[ -z "$token" ]]; then
+      echo "No token found, so nothing was stored."
       exit 1
     fi
-    model=$(/usr/bin/python3 -I -c "import json;print(json.load(open('$BASE/config.json')).get('curator_model','claude-opus-5-5'))")
-    echo "Got a ${#token}-character token. Checking it against $model..."
-    if ! out=$(CLAUDE_CODE_OAUTH_TOKEN="$token" "$CLAUDE" -p "Reply with the single word ok." \
-               --model "$model" --effort low 2>&1); then
+    echo "Got a ${#token}-character token ending in ...${token: -4}. Checking it against $model..."
+    if ! out=$(probe_token "$token" "$model"); then
       echo "Token check failed, so nothing was stored: $out"
       exit 1
     fi
