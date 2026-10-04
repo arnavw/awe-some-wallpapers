@@ -5,7 +5,8 @@ Usage:
   promote.py <filename> --title "…" --credit "…" [--register R] [--treatment mat|fill] [--purpose exploit|surprise|orthogonal]
 
 The filename is a basename inside ~/.wallpaper-rotator/queue/. --title and
---credit set the caption shown on screen (author it like a gallery label).
+--credit set the caption shown on screen: a plain "what, where" label and
+the photographer, institution or artist.
 --register overrides the arm the fetcher tagged; --purpose marks a promotion
 as exploration so its outcome is tracked. Appends to curation_log.jsonl.
 """

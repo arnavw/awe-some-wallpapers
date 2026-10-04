@@ -45,9 +45,15 @@ deliberately probe what he has never seen.
    (fractions of width/height). View the result before deciding.
 6. Act only through the helpers:
    - `/usr/bin/python3 ~/.wallpaper-rotator/promote.py <file> --title "…" --credit "…" [--register R] [--treatment fill] [--purpose surprise]`
-     Author the caption like a gallery label: place or work name, never raw
-     geodata or stock descriptions. `--treatment fill` for unbounded imagery
-     (space, textures); bounded artworks mat automatically.
+     The caption is a plain label, not prose; the viewer looks up what moves
+     them. `--title` is what, then where: "Batok and Semeru volcanoes, East
+     Java", "Cloud streets, Davis Strait". Space objects take their name
+     ("Helix Nebula"); artworks take their own title. No epithets, metaphors,
+     dashes or subtitles; about 40 characters at most; leave out the place
+     rather than guess it, and never use raw geodata or stock descriptions.
+     `--credit` is the photographer, institution, or artist (artist and date
+     for artworks). `--treatment fill` for unbounded imagery (space,
+     textures); bounded artworks mat automatically.
    - `/usr/bin/python3 ~/.wallpaper-rotator/reject.py <file> "<taste-specific reason>"`
 
 ## Plan the next intake — `plan.json`
