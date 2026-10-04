@@ -29,6 +29,19 @@ log_action() {
 # A health check must never break the command it rides on; its own errors still print.
 warn_health() { /usr/bin/python3 -I "$BASE/health.py" || true; }
 
+# read_pasted_token — read a pasted token from stdin without echo, until an empty
+# line or EOF. The CLI wraps long tokens across lines, so every line is joined
+# and all whitespace dropped. Prints the token.
+read_pasted_token() {
+  local token="" line
+  while IFS= read -rs line || [[ -n "$line" ]]; do
+    line=${line//[[:space:]]/}
+    [[ -z "$line" && -n "$token" ]] && break
+    token+=$line
+  done
+  printf '%s' "$token"
+}
+
 case "$cmd" in
   next|skip|n)   log_action; bash "$BASE/rotate.sh"; warn_health ;;
   love)          log_action; echo "noted: loved"; "$BASE/info.sh"; warn_health ;;
@@ -49,18 +62,28 @@ case "$cmd" in
     echo "Step 1 of 2: sign in with the account curation should use. Your browser opens."
     "$CLAUDE" setup-token
     echo
-    echo "Step 2 of 2: paste the token printed above, twice. Typing is hidden; it goes to your login keychain."
-    /usr/bin/security add-generic-password -U -a "$(id -un)" -s "$TOKEN_SERVICE" \
-      -l "awe-some-wallpapers curator token" -w
-    model=$(/usr/bin/python3 -I -c "import json;print(json.load(open('$BASE/config.json')).get('curator_model','claude-opus-5-5'))")
-    echo "Checking the token against $model..."
-    if out=$(CLAUDE_CODE_OAUTH_TOKEN="$(/usr/bin/security find-generic-password -s "$TOKEN_SERVICE" -w)" \
-             "$CLAUDE" -p "Reply with the single word ok." --model "$model" --effort low 2>&1); then
-      echo "Token works. Scheduled curation now runs on it. To curate right away: wp curate"
-    else
-      echo "Token check failed: $out"
+    echo "Step 2 of 2: copy the whole token above, including any part that wrapped onto the next line."
+    echo "Paste it here, then press Enter on an empty line. Typing is hidden."
+    token=$(read_pasted_token); echo
+    if [[ ! "$token" =~ ^sk-ant-oat01-[A-Za-z0-9_-]{20,}$ ]]; then
+      echo "That does not look like a setup-token token, which starts with sk-ant-oat01-. Nothing stored."
       exit 1
-    fi ;;
+    fi
+    model=$(/usr/bin/python3 -I -c "import json;print(json.load(open('$BASE/config.json')).get('curator_model','claude-opus-5-5'))")
+    echo "Got a ${#token}-character token. Checking it against $model..."
+    if ! out=$(CLAUDE_CODE_OAUTH_TOKEN="$token" "$CLAUDE" -p "Reply with the single word ok." \
+               --model "$model" --effort low 2>&1); then
+      echo "Token check failed, so nothing was stored: $out"
+      exit 1
+    fi
+    # Through stdin rather than argv, so the token never shows in the process list.
+    printf 'add-generic-password -U -a %s -s %s -w %s\n' "$(id -un)" "$TOKEN_SERVICE" "$token" | /usr/bin/security -i
+    if [[ "$(/usr/bin/security find-generic-password -s "$TOKEN_SERVICE" -w)" != "$token" ]]; then
+      echo "The token checked out but the keychain write did not stick."
+      exit 1
+    fi
+    unset token
+    echo "Token works and is stored. Scheduled curation now runs on it. To curate right away: wp curate" ;;
   undo)  # correct the last reaction: wp undo love|interesting|meh  (re-labels it)
     /usr/bin/python3 -I - "${2:-}" <<'EOF'
 import sys
