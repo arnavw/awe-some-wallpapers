@@ -31,9 +31,13 @@ first and slowly kills the second. This one is built to keep both alive.
    its contents and restarts WallpaperAgent — the only path that works from
    launchd under Tahoe's sandboxed renderer. Pre-26 Macs use the legacy
    store stamp.
-6. **Sync** (`publish.sh`): local disk is the truth; state and images are
-   pushed to an iCloud folder for replica Macs (`install.sh --replica`), and
-   replicas' reaction logs are pulled back so the learner sees every screen.
+6. **Other Macs** (`publish.py`, `follower/`): the primary Mac is the only one
+   that fetches, curates and rotates. It publishes a small read-only feed to
+   iCloud Drive: the captioned pool, what it is showing, the playlist, and
+   everything ever shown. A follower Mac mirrors the primary's wallpaper and,
+   while the primary sleeps, keeps the show moving with images no Mac has
+   shown. Its reactions flow back, so the curator learns from every screen
+   and nothing repeats anywhere.
 
 ## Install
 
@@ -46,6 +50,16 @@ wp auth      # year-long curator token; headless runs never need a login
 wp fetch     # first intake + curation
 wp seed      # one-time macOS grant (desktop + lock screen)
 ```
+
+On another Mac signed into the same iCloud account:
+
+```bash
+git clone https://github.com/arnavw/awe-some-wallpapers ~/awe-some-wallpapers
+cd ~/awe-some-wallpapers && ./install.sh --follower
+```
+
+`wp` works there too: reactions, skip, ban, info. Intake and curation stay on
+the primary.
 
 ## Commands
 

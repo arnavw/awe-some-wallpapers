@@ -2,9 +2,10 @@
 """The event store: one append-only, typed record of everything that happens.
 
 Every machine appends to its own file — events.jsonl on the primary,
-events.<host>.jsonl on replicas — and readers merge all of them, so
-cross-machine sync is plain file copy. Nothing is ever edited: a mistake is
-fixed by appending a `correction` event that names the event it supersedes.
+events.<host>.jsonl on each follower Mac, pulled in by publish.py — and
+readers merge all of them, so cross-machine sync is plain file copy. Nothing
+is ever edited: a mistake is fixed by appending a `correction` event that
+names the event it supersedes.
 Everything else (bandit.json, captions in meta.json) is a projection.
 
 Event shape: {"ts": epoch, "host": short hostname, "type": …, "image": …, …}
@@ -26,16 +27,9 @@ BASE = Path.home() / ".wallpaper-rotator"
 HOST = os.uname().nodename.split(".")[0]
 
 
-def own_file() -> Path:
-    # Replicas are marked by a file OUTSIDE the synced state dir (install.sh
-    # --replica creates it), so the marker never travels to other machines.
-    replica = (Path.home() / ".wallpaper-replica").exists()
-    return BASE / (f"events.{HOST}.jsonl" if replica else "events.jsonl")
-
-
 def append(type_: str, **data) -> dict:
     e = {"ts": int(time.time()), "host": HOST, "type": type_, **data}
-    with open(own_file(), "a") as f:
+    with open(BASE / "events.jsonl", "a") as f:
         f.write(json.dumps(e, ensure_ascii=False) + "\n")
     return e
 

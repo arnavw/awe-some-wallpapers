@@ -72,8 +72,8 @@ Write `~/.wallpaper-rotator/plan.json`: a JSON list of six objects
 
 ## Sequence the show — `playlist.txt`
 
-One filename per line from the live pool. Hard rules: no repeats of anything
-in `shown.jsonl` (the rotor refuses them anyway); no two images sharing a
+One filename per line from the live pool. Hard rules: nothing with a `shown`
+event from any Mac (the rotor refuses them anyway); no two images sharing a
 register or region within three slots; the opening entries must not repeat
 the registers of the last three showings; **every fourth slot is a jolt** —
 the most distant register available. Lead with the strongest new promotion.

@@ -1,0 +1,32 @@
+#!/bin/bash
+# wp — on a follower Mac, which shows the primary Mac's wallpapers.
+#   wp / wp skip    next wallpaper (here; never one any Mac has shown)
+#   wp love         it moved you (strongest signal)
+#   wp interesting  it engaged you without moving you
+#   wp meh          it left you cold
+#   wp ban          never again, skip ahead
+#   wp info / open  what is this, and open its source page
+#   wp undo LABEL   relabel your last love / interesting / meh
+#   wp seed         (re)establish the macOS grant for the stable wallpaper file
+#   wp status       what this Mac shows, and how fresh the primary's feed is
+# Reactions reach the primary's curator through iCloud Drive. Intake,
+# curation and the curator token live on the primary Mac.
+set -euo pipefail
+F="$HOME/.wallpaper-follower"
+cmd="${1:-next}"
+follow() { /usr/bin/python3 -I "$F/follow.py" "$@"; }
+
+case "$cmd" in
+  next|skip|n)        follow react skip; follow advance ;;
+  love)               follow react love; echo "noted: loved"; follow info ;;
+  interesting|inter)  follow react interesting; echo "noted: interesting" ;;
+  meh)                follow react meh; echo "noted: meh" ;;
+  ban)                follow react ban; echo "banned"; follow advance ;;
+  info)               follow info ;;
+  open)               follow info open ;;
+  undo)               follow undo "${2:-interesting}" ;;
+  seed)               bash "$F/seed.sh" ;;
+  status)             follow status ;;
+  fetch|curate|auth)  echo "wp $cmd runs on the primary Mac; this Mac follows it."; exit 1 ;;
+  *)                  sed -n '2,13p' "$0"; exit 1 ;;
+esac
