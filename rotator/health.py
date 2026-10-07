@@ -6,9 +6,11 @@ A projection of two facts:
     reaches the model, with outcome ok|failed and the CLI's last output line;
   * the age of the long-lived token `wp auth` keeps in the login keychain
     (`claude setup-token` tokens last a year).
+`--status` also reports the iPad (ipad.json, written by publish.py pull) and
+any event lines the store could not read, since other devices write those.
 
     health.py           one warning line when something needs the user, else nothing
-    health.py --status  a summary line for `wp status`
+    health.py --status  summary lines for `wp status`
 
 Stdlib only; runs on the stock macOS python3. Reads keychain metadata only,
 never the token itself.
@@ -109,11 +111,35 @@ def status_line(events: List[dict], stored: Optional[float], now: float) -> str:
     return f"{head}\n{tail}"
 
 
+def ipad_lines(ipad: Optional[dict], current: str, meta: dict, now: float) -> List[str]:
+    """What the iPad last applied (from ipad.json, written by publish.py pull)."""
+    if not ipad or not ipad.get("last_applied"):
+        return ["ipad: nothing applied yet (README: iPad)"]
+    last = ipad["last_applied"]
+    title = meta.get(last["image"], {}).get("title") or last["image"]
+    where = "same as this Mac" if last["image"] == current else "this Mac has moved on since"
+    lines = [f"ipad: {title}, applied {ago(last['ts'], now)} ({where}); {ipad.get('reactions', 0)} reactions"]
+    if ipad.get("rejected"):
+        lines.append(f"ipad: {len(ipad['rejected'])} unreadable lines, latest: {ipad['rejected'][-1][:90]}")
+    return lines
+
+
 def main() -> None:
-    from events import load
-    events, stored, now = load(), token_stored_at(), time.time()
+    import json
+    import events as store
+    events, stored, now = store.load(), token_stored_at(), time.time()
     if "--status" in sys.argv:
         print(status_line(events, stored, now))
+        try:
+            ipad = json.loads((BASE / "ipad.json").read_text())
+        except FileNotFoundError:
+            ipad = None
+        current = Path((BASE / "current.txt").read_text().strip()).name if (BASE / "current.txt").exists() else ""
+        meta = json.loads((BASE / "meta.json").read_text()) if (BASE / "meta.json").exists() else {}
+        for line in ipad_lines(ipad, current, meta, now):
+            print(line)
+        if store.malformed:
+            print(f"events: {len(store.malformed)} unreadable lines skipped, latest: {store.malformed[-1][:90]}")
         return
     for line in (failure_warning(failing_streak(events)), token_warning(stored, now)):
         if line:

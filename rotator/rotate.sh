@@ -44,6 +44,6 @@ mkdir -p "$IMAGES/archive"
     archive) mv -f "$IMAGES/$name" "$IMAGES/archive/" ;;
     delete)  rm -f "$IMAGES/$name" ;;
   esac
-  rm -f "$IMAGES/.display/$name"
+  rm -f "$IMAGES/.display/$name" "$IMAGES/.ipad/$name"
 done || echo "$(date '+%F %T') retiring spent images failed; next_image.py still refuses them"
 /usr/bin/python3 -I "$BASE/publish.py" push || echo "$(date '+%F %T') feed publish failed; followers catch up on the next one"

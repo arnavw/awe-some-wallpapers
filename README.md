@@ -61,6 +61,43 @@ cd ~/awe-some-wallpapers && ./install.sh --follower
 `wp` works there too: reactions, skip, ban, info. Intake and curation stay on
 the primary.
 
+## iPad
+
+The iPad mirrors the primary. Whenever the primary's wallpaper changes, it
+leaves one square, captioned copy in `AweSomeWallpapers/feed/ipad/`; two
+small shortcuts on the iPad put it up and send reactions back. Build them on
+the iPad, since the wallpaper action targets a wallpaper on that device.
+
+Once: make a photo wallpaper (Settings › Wallpaper › Add New Wallpaper ›
+Photos, any photo, set as a pair) and keep it active; in its editor turn off
+Perspective Zoom and spatial scene, and give the Home Screen the original
+photo, not the blur. In Files, long-press `AweSomeWallpapers › feed` and
+choose Keep Downloaded.
+
+**Sync wallpaper**
+
+1. Get Contents of Folder: `AweSomeWallpapers › feed › ipad`
+2. If: Contents of Folder has any value
+3. Set Wallpaper Photo: Contents of Folder. Wallpaper: the photo wallpaper
+   above. Lock Screen and Home Screen. Show Preview, Crop to Subject and
+   Legibility Blur off.
+4. Append to Text File: `Current Date applied Name` (Current Date formatted
+   ISO 8601 with time; Name is Contents of Folder › Name) to
+   `AweSomeWallpapers › feed › ipad-log.txt`, Make New Line on
+5. Move File: Contents of Folder to `AweSomeWallpapers › feed › ipad-done`
+6. End If
+
+Run it once by hand and answer every prompt with Always Allow. Then trigger
+it at 00:40, 03:40, … 21:40 (ten minutes after each rotation) and when the
+charger connects, with Allow Running When Locked on.
+
+**Love wallpaper**: one action, Append to Text File: `Current Date love` to
+`AweSomeWallpapers › feed › reactions.ipad.txt`, Make New Line on. Put it in
+a Home Screen widget or Control Center. Copies with `interesting`, `meh` or
+`ban` instead of `love` work the same way.
+
+`wp status` on the primary shows what the iPad last applied and when.
+
 ## Commands
 
 ```

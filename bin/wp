@@ -148,6 +148,8 @@ EOF
     ;;
   events)        /usr/bin/python3 -I "$BASE/events.py" tail "${2:-15}" ;;
   status)
+    # fresh iPad and follower logs first; a failed pull prints its error and status still runs
+    /usr/bin/python3 -I "$BASE/publish.py" pull || true
     /usr/bin/python3 -I "$BASE/health.py" --status
     echo "pool:    $(ls "$HOME/Pictures/WorldWallpapers"/*.jpg 2>/dev/null | wc -l | tr -d ' ')"
     echo "queue:   $(ls "$BASE/queue" 2>/dev/null | wc -l | tr -d ' ')"

@@ -34,20 +34,41 @@ def append(type_: str, **data) -> dict:
     return e
 
 
+# Lines load() could not use on its last call, as "file: line"; wp status
+# reports them. Every machine's stream is read, so one device's bad line must
+# not stop the others' rotation, selection and learning.
+malformed: list = []
+
+
 def load() -> list:
-    """All events from every machine, corrections applied, ordered by time."""
+    """All events from every machine, corrections applied, ordered by time.
+
+    Lines that are not JSON objects with an integer ts are skipped and listed
+    in `malformed`.
+    """
     events = []
+    malformed.clear()
     for path in glob.glob(str(BASE / "events*.jsonl")):
-        with open(path) as f:
+        with open(path, errors="replace") as f:
             for line in f:
                 line = line.strip()
-                if line:
-                    try:
-                        events.append(json.loads(line))
-                    except ValueError:
-                        pass
-    events.sort(key=lambda e: e.get("ts", 0))
-    fixes = {c["ref_ts"]: c for c in events if c.get("type") == "correction"}
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    e = None
+                if isinstance(e, dict) and isinstance(e.get("ts"), int) and not isinstance(e["ts"], bool):
+                    events.append(e)
+                else:
+                    malformed.append(f"{Path(path).name}: {line[:120]}")
+    events.sort(key=lambda e: e["ts"])
+    fixes = {}
+    for c in (e for e in events if e.get("type") == "correction"):
+        if isinstance(c.get("ref_ts"), int) and isinstance(c.get("field"), str) and "value" in c:
+            fixes[c["ref_ts"]] = c
+        else:
+            malformed.append(f"correction: {json.dumps(c)[:120]}")
     out = []
     for e in events:
         if e.get("type") == "correction":

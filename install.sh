@@ -89,9 +89,16 @@ rm -f "$BASE/publish.sh" "$BASE/mirror.sh" "$BASE/migrate_v1.py" "$BASE/migrate_
 [[ -f "$BASE/config.json" ]] || cp "$REPO/config.example.json" "$BASE/config.json"
 [[ -f "$BASE/taste.md" ]]    || cp "$REPO/rotator/taste.seed.md" "$BASE/taste.md"
 
+# Rotation at fixed times, 00:30 and every three hours after: half an hour
+# after each intake, so fresh promotions are ready, and predictable enough for
+# the iPad's shortcut to run ten minutes later.
+rotate_times=""
+for h in 0 3 6 9 12 15 18 21; do
+  rotate_times+="<dict><key>Hour</key><integer>$h</integer><key>Minute</key><integer>30</integer></dict>"
+done
 plist "com.$USER.wallpaper-rotate" \
   "<string>/bin/bash</string><string>$BASE/rotate.sh</string>" \
-  "<key>StartInterval</key><integer>10800</integer>"
+  "<key>StartCalendarInterval</key><array>$rotate_times</array>"
 plist "com.$USER.wallpaper-fetch" \
   "<string>/usr/bin/python3</string><string>$BASE/fetch.py</string>" \
   "<key>StartCalendarInterval</key><array><dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict><dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>0</integer></dict><dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict></array>"

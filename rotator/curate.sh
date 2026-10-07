@@ -99,7 +99,7 @@ UV=$(command -v uv || echo "$HOME/.local/bin/uv")
 /usr/bin/python3 -I "$BASE/publish.py" push || echo "$(date '+%F %T') feed publish failed; followers catch up on the next one"
 
 # A rotation tick that found nothing fresh is still owed. If the wallpaper has
-# been up longer than the rotation interval (install.sh's StartInterval), use
+# been up longer than the rotation interval (install.sh: every three hours), use
 # what this pass promoted now rather than at the next tick.
 ROTATE_INTERVAL=10800
 if [[ -f "$BASE/current.txt" ]] &&
