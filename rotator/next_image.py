@@ -15,8 +15,9 @@ rotate.sh calls this.
                                 to the keeper archive
   --dry                         leave the playlist untouched
 
-Selection: the first playlist entry that is in the pool, is not current and
-was never shown; otherwise a random fresh pool image.
+Selection: the first playlist entry that is in the pool with its captioned
+copy ready, is not current and was never shown; otherwise a random fresh,
+ready pool image.
 """
 
 import random
@@ -46,9 +47,13 @@ def pool() -> list:
 
 
 def pick(current: str, shown: set, dry: bool) -> str:
-    """The next fresh image name ("" if none); consumes the playlist prefix."""
+    """The next fresh image name ("" if none); consumes the playlist prefix.
+
+    Only images whose captioned copy exists are ready: a tick that lands while
+    a curation pass is still composing waits rather than showing a bare image.
+    """
     lines = PLAYLIST.read_text().split() if PLAYLIST.exists() else []
-    in_pool = set(pool())
+    in_pool = {name for name in pool() if (IMAGES / ".display" / name).exists()}
     for i, cand in enumerate(lines):
         if cand != current and cand not in shown and cand in in_pool:
             if not dry:
