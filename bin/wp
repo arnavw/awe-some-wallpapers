@@ -83,7 +83,16 @@ probe_token() {
 }
 
 case "$cmd" in
-  next|skip|n)   log_action; bash "$BASE/rotate.sh"; warn_health ;;
+  next|skip|n)
+    log_action
+    before=$(cat "$BASE/current.txt" 2>/dev/null || true)
+    bash "$BASE/rotate.sh"
+    if [[ "$(cat "$BASE/current.txt" 2>/dev/null || true)" == "$before" ]]; then
+      # Honor the skip as soon as curation approves something (curate.sh).
+      touch "$BASE/.skip-pending"
+      echo "the next image the curator approves goes up as soon as it is ready"
+    fi
+    warn_health ;;
   love)          log_action; echo "noted: loved"; "$BASE/info.sh"; warn_health ;;
   interesting|inter) log_action; echo "noted: interesting"; warn_health ;;
   meh)           log_action; echo "noted: meh"; warn_health ;;

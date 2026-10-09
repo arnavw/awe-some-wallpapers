@@ -7,7 +7,8 @@ Each register is a Beta-distributed arm. Evidence per shown image:
   long dwell   +0.25 alpha (skipped only after >= 2 hours on screen)
   meh / ban    +1.0 beta
   fast skip    +1.0 beta (skipped within 15 minutes of appearing)
-Pulls = number of showings. Runs before every curation pass so the curator
+Each image counts once per kind of reaction. Pulls = number of showings.
+Runs before every curation pass so the curator
 plans from arithmetic, not from its own narrative.
 """
 
@@ -30,6 +31,10 @@ def main() -> None:
     def arm(image):
         return arms.get(meta.get(image, {}).get("register"))
 
+    # One vote of each kind per image: repeating a reaction (a second love, or
+    # a skip that found nothing fresh and left the same image up) adds no
+    # evidence, so only the first counts.
+    voted = set()
     for e in load():
         a = arm(e.get("image"))
         if a is None:
@@ -39,6 +44,10 @@ def main() -> None:
             a["pulls"] += 1
         elif t == "reaction":
             cmd, dwell = e.get("cmd"), e.get("dwell_s") or 0
+            vote = (e.get("image"), "skip" if cmd in ("skip", "next", "n") else cmd)
+            if vote in voted:
+                continue
+            voted.add(vote)
             if cmd == "love":
                 a["alpha"] += 1.0; a["loves"] += 1
             elif cmd == "interesting":

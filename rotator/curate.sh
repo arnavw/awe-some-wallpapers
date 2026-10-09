@@ -98,13 +98,14 @@ UV=$(command -v uv || echo "$HOME/.local/bin/uv")
 "$UV" run --script "$BASE/compose.py" || true
 /usr/bin/python3 -I "$BASE/publish.py" push || echo "$(date '+%F %T') feed publish failed; followers catch up on the next one"
 
-# A rotation tick that found nothing fresh is still owed. If the wallpaper has
-# been up longer than the rotation interval (install.sh: every three hours), use
-# what this pass promoted now rather than at the next tick.
+# A rotation that found nothing fresh is still owed: a tick, when the wallpaper
+# has been up longer than the rotation interval (install.sh: every three
+# hours), or a skip that wp recorded in .skip-pending. Use what this pass
+# promoted now rather than at the next tick.
 ROTATE_INTERVAL=10800
-if [[ -f "$BASE/current.txt" ]] &&
-   (( $(date +%s) - $(/usr/bin/stat -f %m "$BASE/current.txt") >= ROTATE_INTERVAL )); then
-  echo "$(date '+%F %T') wallpaper overdue; rotating now"
-  bash "$BASE/rotate.sh" || echo "$(date '+%F %T') overdue rotation failed; the next tick retries"
+if [[ -f "$BASE/.skip-pending" ]] || { [[ -f "$BASE/current.txt" ]] &&
+   (( $(date +%s) - $(/usr/bin/stat -f %m "$BASE/current.txt") >= ROTATE_INTERVAL )); }; then
+  echo "$(date '+%F %T') rotation owed (overdue or skipped); rotating now"
+  bash "$BASE/rotate.sh" || echo "$(date '+%F %T') owed rotation failed; the next tick retries"
 fi
 echo "$(date '+%F %T') curation pass done"

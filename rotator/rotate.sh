@@ -32,6 +32,7 @@ else
   echo "$next" > "$STATE"
   /usr/bin/python3 -I "$BASE/events.py" append shown "image=$(basename "$next")" >/dev/null
   on_screen="$next"
+  rm -f "$BASE/.skip-pending"   # any skip that found nothing fresh is now honored
   echo "$(date '+%F %T') set wallpaper: $(basename "$next")"
 fi
 
