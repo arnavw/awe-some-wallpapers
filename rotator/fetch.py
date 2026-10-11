@@ -36,6 +36,7 @@ except Unsplash, ISS and Flickr, which sit out until their key is in config:
                 agency astronomy archives (CC BY 4.0), sized before download
   photojournal  NASA/JPL planetary images, via science.nasa.gov search
   earthobs      NASA Earth Observatory satellite and ISS views, same route
+  copernicus    Copernicus Image of the Day: curated Sentinel views (EU)
   nasa          NASA image library: a mixed science archive
   cleveland     Cleveland Museum of Art open access (CC0)
   smk           SMK, National Gallery of Denmark (public domain)
@@ -51,6 +52,7 @@ Stdlib only; runs on the stock macOS python3 from launchd.
 
 import csv
 import hashlib
+import html
 import json
 import random
 import re
@@ -143,7 +145,7 @@ SOURCE_MIX = {
     "science": ["esawebb", "esahubble", "eso", "noirlab", "photojournal", "nasa"],
     "night sky": ["eso", "commons", "unsplash", "flickr"],
     "storm/weather": ["unsplash", "flickr", "commons"],
-    **{r: ["unsplash", "commons", "earthobs", "iss", "flickr"]
+    **{r: ["unsplash", "commons", "earthobs", "copernicus", "iss", "flickr"]
        for r in ("ice/polar", "desert/ground", "water/coast", "volcanic")},
 }
 DEFAULT_MIX = ["unsplash", "unsplash", "commons", "flickr"]
@@ -232,6 +234,18 @@ def download(url: str, dest: Path, headers=None) -> None:
                 raise
             time.sleep(delay)
             delay *= 3
+
+
+def as_jpeg(path: Path) -> None:
+    """Convert a download that is neither JPEG nor PNG (Copernicus sends WebP)
+    to JPEG in place: queue files are named .jpg and read as such downstream."""
+    head = path.read_bytes()[:12]
+    if head[:3] == b"\xff\xd8\xff" or head[:8] == b"\x89PNG\r\n\x1a\n":
+        return
+    tmp = path.with_suffix(".conv.jpg")
+    subprocess.run(["/usr/bin/sips", "-s", "format", "jpeg", "-s", "formatOptions", "92", str(path), "--out", str(tmp)],
+                   capture_output=True, check=True)
+    tmp.replace(path)
 
 
 def image_size(path: Path) -> tuple:
@@ -499,6 +513,7 @@ def curl_text(url: str) -> str:
     with 403 whatever the headers (always on /wp-json/, on pages once it has
     seen a few), while curl's handshake passes; outside our control, so curl it
     is. Its images live on assets.science.nasa.gov, which serves Python fine.
+    curl also follows 308 redirects, which the stock python3 (3.9) does not.
     Raises on any HTTP or network failure, like http_text."""
     out = subprocess.run(["/usr/bin/curl", "-sSfL", "--max-time", "30", "-A", UA, ascii_url(url)],
                          capture_output=True, text=True)
@@ -535,6 +550,34 @@ def src_nasa_science(kind: str, q: str, cfg: dict) -> list:
         if NOT_A_PICTURE.search(title) or (kind == "photojournal" and PJ_SKIP.search(title)):
             continue
         out.append(cand(f"{kind}:{url.split('?')[0]}", url, title, label, label, link, "science"))
+    return out
+
+
+# ------------------------------------------- Copernicus Image of the Day ----
+# The EU's Copernicus programme posts a curated Sentinel image most days, at
+# 4961x3508. Its gallery has a keyword search; each item page links the
+# original. Climate bulletins and maps share the gallery and are skipped by title.
+COPERNICUS = "https://www.copernicus.eu"
+COPERNICUS_SKIP = re.compile(r"warmest|record|anomal|temperature|bulletin|forecast|concentration|index|"
+                             r"\bmap\b|chart|graph|years? of|anniversary", re.I)
+
+
+def src_copernicus(q: str, cfg: dict) -> list:
+    page = http_text(f"{COPERNICUS}/en/media/image-day?{urllib.parse.urlencode({'combine': q})}")
+    slugs = list(dict.fromkeys(re.findall(r'href="(/en/media/image-day-gallery/[^"?#]+)"', page)))[:12]
+    out = []
+    for slug in slugs:
+        item = curl_text(COPERNICUS + slug)   # item pages 308 to eu-space.europa.eu
+        time.sleep(0.3)
+        title = re.search(r'og:title" content="([^"]+)"', item)
+        image = re.search(r'href="(https://eu-space\.europa\.eu/sites/default/files/\d{4}-\d{2}/[^"]+\.(?:webp|jpe?g|png))"', item)
+        if not title or not image:
+            continue
+        title = html.unescape(title.group(1))
+        if COPERNICUS_SKIP.search(title) or NOT_A_PICTURE.search(title):
+            continue
+        out.append(cand(f"copernicus:{slug.rsplit('/', 1)[-1]}", image.group(1), title,
+                        "Copernicus Sentinel data, EU", "Copernicus", COPERNICUS + slug, "science"))
     return out
 
 
@@ -772,7 +815,7 @@ SOURCES = {
     **{site: (lambda s: lambda q, cfg: src_djangoplicity(s, q, cfg))(site) for site in DJANGOPLICITY},
     "photojournal": lambda q, cfg: src_nasa_science("photojournal", q, cfg),
     "earthobs": lambda q, cfg: src_nasa_science("earthobs", q, cfg),
-    "iss": src_iss, "flickr": src_flickr, "nga": src_nga,
+    "iss": src_iss, "flickr": src_flickr, "nga": src_nga, "copernicus": src_copernicus,
 }
 
 
@@ -820,6 +863,12 @@ def run_query(item: dict, cfg: dict, seen: set, meta: dict, run_subjects: set) -
         except Exception as e:
             failed += 1
             print(f"  download failed {c['url'][:80]}: {e}", file=sys.stderr)
+            continue
+        try:
+            as_jpeg(dest)
+        except subprocess.CalledProcessError as e:
+            print(f"  could not convert {c['url'][:80]} to JPEG: {e.stderr[:120]!r}", file=sys.stderr)
+            dest.unlink(missing_ok=True)
             continue
         if not acceptable_file(dest, c["kind"], cfg):
             dest.unlink(missing_ok=True)

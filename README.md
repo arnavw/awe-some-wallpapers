@@ -13,7 +13,7 @@ first and slowly kills the second. This one is built to keep both alive.
    photography (Unsplash, Flickr, Wikimedia Commons Featured and Quality
    images), the ESA/Webb, ESA/Hubble, ESO and NOIRLab archives, NASA's
    Photojournal, Earth Observatory, ISS astronaut photography and image
-   library, and open-access art (the National Gallery of Art, Cleveland, SMK,
+   library, Copernicus Image of the Day, and open-access art (the National Gallery of Art, Cleveland, SMK,
    The Met, the Art Institute of Chicago, Commons). The queries come from the curator's own plan; the
    first run bootstraps them from a Thompson-sampling bandit over twenty
    registers (night sky, storm, volcanic, ice, art, illustration, science,

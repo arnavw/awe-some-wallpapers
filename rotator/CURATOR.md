@@ -84,6 +84,8 @@ Write `~/.wallpaper-rotator/plan.json`: a JSON list of six objects
     up, observations only); `photojournal` (planetary, NASA/JPL); `nasa` (the
     NASA image library, a mixed archive)
   - Earth from orbit: `earthobs` (NASA Earth Observatory: satellite and ISS views);
+    `copernicus` (the EU's curated Sentinel image of the day; search a place or
+    feature: "glacier", "Læsø", "delta");
     `iss` (astronaut photographs, searched by catalogued feature or place name:
     "delta", "Lena", "sea ice", "salt")
   - more photography: `flickr` (openly licensed, ordered by interestingness)
