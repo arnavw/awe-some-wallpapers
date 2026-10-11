@@ -9,8 +9,11 @@ Where queries come from, in priority order:
      samples pick exploit arms, the least-pulled arms fill surprise slots,
      and each arm's seed phrases (below) become queries.
 
-Every executed query is appended to queries.jsonl and never executed again:
-the ledger is the novelty guarantee at the query level.
+Every executed query is ledgered as a `query` event and never executed again:
+the ledger is the novelty guarantee at the query level. A query an outage cut
+short (the search raised, or every download did) is logged as `query_error`
+instead, left out of the ledger, and saved to plan.retry.json for the next
+run, so network trouble neither burns queries nor discards the curator's plan.
 
 Demand: launchd runs this hourly, and it works only while the reserve (approved,
 captioned wallpapers no Mac has shown) is below pool_target. Each intake is sized
@@ -49,6 +52,7 @@ from pathlib import Path
 
 BASE = Path.home() / ".wallpaper-rotator"
 QUEUE = BASE / "queue"
+RETRY_PLAN = BASE / "plan.retry.json"   # queries an outage cut short, run again first
 # No URL in the UA: the Art Institute's image server 403s agents that carry one.
 UA = "awe-some-wallpapers/2.0 (personal wallpaper curator; github arnavw/awe-some-wallpapers)"
 
@@ -110,9 +114,13 @@ def ledger_queries() -> set:
 
 
 def ledger_add(query: str, register: str, source: str, purpose: str, yielded: int) -> None:
+    events_append("query", query=query, register=register, source=source, purpose=purpose, **{"yield": yielded})
+
+
+def events_append(type_: str, **data) -> None:
     sys.path.insert(0, str(BASE))
     from events import append
-    append("query", query=query, register=register, source=source, purpose=purpose, **{"yield": yielded})
+    append(type_, **data)
 
 
 # ----------------------------------------------------------------- plan ----
@@ -144,12 +152,16 @@ def bootstrap_plan(cfg: dict) -> list:
 
 
 def load_plan(cfg: dict) -> list:
-    plan_file = BASE / "plan.json"
-    plan = load_json(plan_file, None)
-    if plan:
+    """Queries that failed on the network last time, then the curator's plan;
+    a bootstrap plan only when both are empty. Both files are consumed."""
+    plan = []
+    for plan_file in (RETRY_PLAN, BASE / "plan.json"):
+        plan += load_json(plan_file, None) or []
         plan_file.unlink(missing_ok=True)
-        used = ledger_queries()
-        plan = [p for p in plan if p.get("query", "").lower() not in used and p.get("register") in REGISTERS][:8]
+    if plan:
+        used, picked = ledger_queries(), set()
+        plan = [p for p in plan if p.get("query", "").lower() not in used and p.get("register") in REGISTERS
+                and not (p["query"].lower() in picked or picked.add(p["query"].lower()))][:8]
         for p in plan:
             p.setdefault("source", source_for(p["register"]))
             p.setdefault("purpose", "exploit")
@@ -200,9 +212,10 @@ def src_unsplash(q: str, cfg: dict) -> list:
     if not key:
         return []
     auth = {"Authorization": f"Client-ID {key}"}
-    page = random.randint(1, 3)
+    # Page 1 only: queries never repeat, and a random later page lands past
+    # the end of a niche query's results.
     params = urllib.parse.urlencode({"query": q, "orientation": "landscape", "per_page": 30,
-                                     "page": page, "content_filter": "high"})
+                                     "page": 1, "content_filter": "high"})
     data = http_json(f"https://api.unsplash.com/search/photos?{params}", auth)
     out = []
     for p in data.get("results", []):
@@ -216,13 +229,25 @@ def src_unsplash(q: str, cfg: dict) -> list:
     return out
 
 
+COMMONS_TIERS = {"featured": 0, "potd": 0, "poty": 0, "valued": 1, "quality": 2}
+
+
 def src_commons(q: str, cfg: dict) -> list:
+    """Featured and Quality images at least min_width wide, best tier first.
+
+    Featured Pictures alone is ~14k files at 4K and most specific queries find
+    none; Quality images (~300k at 4K) is a technical floor, so its candidates
+    rank behind Featured and Valued ones. Multi-word queries are quoted so
+    stray metadata words don't match. Thumbnails stop at 3840 px.
+    """
+    phrase = f'"{q}"' if " " in q.strip() else q
+    width = cfg.get("min_width", 3840)
     params = urllib.parse.urlencode({
         "action": "query", "format": "json", "generator": "search",
-        "gsrsearch": f'{q} incategory:"Featured pictures on Wikimedia Commons"',
+        "gsrsearch": f"{phrase} filew:>{width - 1} incategory:Featured_pictures_on_Wikimedia_Commons|Quality_images",
         "gsrnamespace": 6, "gsrlimit": 30, "gsrsort": "random",
         "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata",
-        "iiurlwidth": cfg.get("download_width", 5120),
+        "iiextmetadatafilter": "Artist|Assessments", "iiurlwidth": 3840,
     })
     data = http_json(f"https://commons.wikimedia.org/w/api.php?{params}")
     out = []
@@ -230,13 +255,16 @@ def src_commons(q: str, cfg: dict) -> list:
         info = (p.get("imageinfo") or [{}])[0]
         if info.get("mime") not in ("image/jpeg", "image/png"):
             continue
-        if info.get("width", 0) < cfg.get("min_width", 3840):
+        if info.get("width", 0) < width:
             continue
+        ext = info.get("extmetadata", {})
+        tiers = ext.get("Assessments", {}).get("value", "").split("|")
         title = re.sub(r"^File:|\.[A-Za-z]+$", "", p.get("title", ""))
-        artist = re.sub(r"<[^>]+>", "", info.get("extmetadata", {}).get("Artist", {}).get("value", "")).strip()
-        out.append(cand(f"commons:{p['pageid']}", info.get("thumburl") or info.get("url"),
-                        title, artist or "Unknown", "Wikimedia Commons",
-                        info.get("descriptionshorturl", "")))
+        artist = re.sub(r"<[^>]+>", "", ext.get("Artist", {}).get("value", "")).strip()
+        c = cand(f"commons:{p['pageid']}", info.get("thumburl") or info.get("url"),
+                 title, artist or "Unknown", "Wikimedia Commons", info.get("descriptionshorturl", ""))
+        c["rank"] = min((COMMONS_TIERS[t] for t in tiers if t in COMMONS_TIERS), default=3)
+        out.append(c)
     return out
 
 
@@ -318,21 +346,28 @@ def acceptable_file(path: Path, kind: str, cfg: dict) -> bool:
     w, h = image_size(path)
     if w == 0 or h == 0:
         return False
-    if kind == "photo":
+    if kind in ("photo", "science"):   # science fills the screen too, so it meets the photo gate
         return w >= cfg.get("min_width", 3840) and cfg.get("min_aspect", 1.2) <= w / h <= cfg.get("max_aspect", 2.5)
     return max(w, h) >= cfg.get("art_min_dimension", 2400)
 
 
-def run_query(item: dict, cfg: dict, seen: set, meta: dict, run_subjects: set) -> int:
+def run_query(item: dict, cfg: dict, seen: set, meta: dict, run_subjects: set) -> tuple:
+    """Queue up to images_per_query candidates for one query.
+
+    Returns (queued, error). error names an outage — the search raised, or every
+    download did — so the caller can retry the query instead of ledgering a
+    zero that says nothing about taste. Candidates go in rank order (a
+    source's quality tier; 0 when it has none), shuffled within a rank.
+    """
     q, register, source, purpose = item["query"], item["register"], item["source"], item.get("purpose", "exploit")
     fn = SOURCES.get(source, src_unsplash)
     try:
         cands = fn(q, cfg)
     except Exception as e:
         print(f"  {source} search failed for {q!r}: {e}", file=sys.stderr)
-        cands = []
-    random.shuffle(cands)
-    got = 0
+        return 0, f"search failed: {e}"
+    cands.sort(key=lambda c: (c.get("rank", 0), random.random()))
+    got = tried = failed = 0
     for c in cands:
         if got >= cfg.get("images_per_query", 3):
             break
@@ -344,9 +379,11 @@ def run_query(item: dict, cfg: dict, seen: set, meta: dict, run_subjects: set) -
         name = hashlib.sha1(c["key"].encode()).hexdigest()[:16] + ".jpg"
         dest = QUEUE / name
         time.sleep(1.5)
+        tried += 1
         try:
             download(c["url"], dest, c.get("headers"))
         except Exception as e:
+            failed += 1
             print(f"  download failed {c['url'][:80]}: {e}", file=sys.stderr)
             continue
         if not acceptable_file(dest, c["kind"], cfg):
@@ -359,7 +396,9 @@ def run_query(item: dict, cfg: dict, seen: set, meta: dict, run_subjects: set) -
                       "purpose": purpose, "query": q}
         got += 1
         print(f"  + [{source}/{register}/{purpose}] {c['title'][:70]} -> {name}")
-    return got
+    if got == 0 and tried and failed == tried:
+        return 0, f"all {tried} downloads failed"
+    return got, None
 
 
 def queued_count() -> int:
@@ -398,11 +437,20 @@ def intake(cfg: dict, want: int) -> None:
     print(f"{time.strftime('%F %T')} intake: {len(plan)} queries, up to {per_query} images each")
     total = 0
     run_subjects = set()
+    retry = []
     for item in plan:
         print(f"query: {item['query']!r} [{item['source']}/{item['register']}/{item.get('purpose')}]")
-        n = run_query(item, cfg, seen, meta, run_subjects)
+        n, error = run_query(item, cfg, seen, meta, run_subjects)
+        if error:   # an outage, not a verdict: keep the query for the next run
+            events_append("query_error", query=item["query"], register=item["register"],
+                          source=item["source"], purpose=item.get("purpose", "exploit"), error=error[:200])
+            retry.append(item)
+            continue
         ledger_add(item["query"], item["register"], item["source"], item.get("purpose", "exploit"), n)
         total += n
+    if retry:
+        save_json(RETRY_PLAN, retry)
+        print(f"{len(retry)} queries failed on the network; kept for the next run")
     (BASE / "seen.txt").write_text("\n".join(list(seen)[-8000:]))
     save_json(BASE / "meta.json", meta)
     print(f"done: {total} candidates queued")

@@ -11,7 +11,9 @@ Everything else (bandit.json, captions in meta.json) is a projection.
 Event shape: {"ts": epoch, "host": short hostname, "type": …, "image": …, …}
 Types: shown · reaction (cmd, dwell_s) · promote (caption, register, purpose)
        · reject (reason) · query (query, register, source, purpose, yield)
+       · query_error (query, register, source, purpose, error: an outage, retried)
        · caption (title, credit) · correction (ref_ts, field, value)
+       · curation (outcome, reason)
 
 CLI: events.py append <type> key=value …   |   events.py tail [n]
 """

@@ -16,7 +16,9 @@ deliberately probe what he has never seen.
   arithmetic over your narrative.
 - `~/.wallpaper-rotator/events*.jsonl` — the append-only record of everything:
   `shown`, `reaction` (love / interesting / meh / ban / skip with dwell_s),
-  `promote`, `reject`, `query` (every query ever executed — never repeat one),
+  `promote`, `reject`, `query` (every query ever executed — never repeat one;
+  `query_error` marks one an outage cut short, which is retried and says
+  nothing about taste),
   `correction`. Read it with `/usr/bin/python3 ~/.wallpaper-rotator/events.py tail 200`
   (corrections are already applied in that view). Never edit these files.
 - `~/.wallpaper-rotator/meta.json` — per file: title, credit, source, kind,
