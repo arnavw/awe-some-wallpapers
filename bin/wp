@@ -10,6 +10,7 @@
 #   wp curate       curation over the current queue
 #   wp seed         (re)establish the macOS grant for the stable wallpaper file
 #   wp auth         store a year-long curator token, so curation never needs a login
+#   wp key <source> store an API key from a hidden prompt: unsplash, iss, flickr
 #   wp status       curator health, pool, queue, bandit, next up
 # Every reaction is logged with the image it targets and its on-screen dwell.
 # Day-to-day commands end with a warning line while curation is failing.
@@ -144,6 +145,41 @@ case "$cmd" in
     fi
     unset token
     echo "Token works and is stored. Scheduled curation now runs on it. To curate right away: wp curate" ;;
+  key)  # an API key from a hidden prompt, tried with a test search, then stored in config.json
+    case "${2:-}" in
+      unsplash) field=unsplash_access_key; probe="fog" ;;
+      iss)      field=eol_api_key;         probe="delta" ;;
+      flickr)   field=flickr_api_key;      probe="lenticular cloud" ;;
+      *)        echo "usage: wp key unsplash|iss|flickr"; exit 1 ;;
+    esac
+    echo "Paste the $2 key, then press Enter. Typing is hidden."
+    IFS= read -rs value || true; echo
+    value=${value//[[:space:]]/}
+    if [[ -z "$value" ]]; then
+      echo "Nothing pasted, so nothing was stored."
+      exit 1
+    fi
+    # Through stdin rather than argv, so the key never shows in the process list.
+    printf '%s' "$value" | /usr/bin/python3 -I -c '
+import importlib.util, json, os, sys
+base = os.path.expanduser("~/.wallpaper-rotator")
+source, field, query = sys.argv[1:4]
+spec = importlib.util.spec_from_file_location("fetch", base + "/fetch.py")
+fetch = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fetch)
+path = base + "/config.json"
+cfg = {**json.load(open(path)), field: sys.stdin.read()}
+try:   # tried before it is stored: a rejected key would only fail every query
+    found = fetch.SOURCES[source](query, cfg)
+except Exception as e:
+    sys.exit(f"Not stored: a test search with it failed: {e}")
+tmp = path + ".new"
+with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+    json.dump(cfg, f, indent=2)
+os.replace(tmp, path)   # 0600: the file holds keys
+print(f"Stored. A test search for {query!r} found {len(found)} usable images; intake uses {source} from now on.")
+' "$2" "$field" "$probe"
+    unset value ;;
   undo)  # correct the last reaction: wp undo love|interesting|meh  (re-labels it)
     /usr/bin/python3 -I - "${2:-}" <<'EOF'
 import sys

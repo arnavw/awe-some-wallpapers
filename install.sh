@@ -105,7 +105,7 @@ plist "com.$USER.wallpaper-fetch" \
 /usr/bin/python3 -I "$BASE/publish.py" || echo "feed publish failed; it retries after the next rotation"
 
 echo "Installed."
-echo "1. Put your Unsplash key and contact email in $BASE/config.json"
+echo "1. wp key unsplash   (optional keys: wp key iss, wp key flickr)"
 echo "2. wp auth           (year-long curator token; headless curation never needs a login)"
 echo "3. wp fetch          (first intake + curation)"
 echo "4. wp seed           (one-time macOS grant; desktop + lock screen)"

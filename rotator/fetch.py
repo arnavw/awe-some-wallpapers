@@ -28,7 +28,7 @@ The default of 30 is about two intakes: a queue much larger than that no
 longer fits the curator's view at once, and a recovery run slows several-fold.
 
 Sources, chosen per register (SOURCE_MIX, or the curator's plan) — all keyless
-except Unsplash:
+except Unsplash, ISS and Flickr, which sit out until their key is in config:
   unsplash      photography, relevance-ranked, no like-floor (the curator's eyes
                 are the quality gate; ranking by likes only ever found postcards)
   commons       Wikimedia Commons Featured and Quality images, best tier first
@@ -41,6 +41,8 @@ except Unsplash:
   smk           SMK, National Gallery of Denmark (public domain)
   commons_art   prints, plates and paintings across all of Commons
   met, aic      The Met and the Art Institute of Chicago, public domain
+  iss           ISS astronaut photography of Earth (needs eol_api_key)
+  flickr        Flickr, openly licensed, by interestingness (needs flickr_api_key)
 
 Stdlib only; runs on the stock macOS python3 from launchd.
 """
@@ -60,6 +62,7 @@ from pathlib import Path
 BASE = Path.home() / ".wallpaper-rotator"
 QUEUE = BASE / "queue"
 RETRY_PLAN = BASE / "plan.retry.json"   # queries an outage cut short, run again first
+MAX_ATTEMPTS = 3                         # failures after which a query is spent rather than retried
 # No URL in the UA: the Art Institute's image server 403s agents that carry one.
 UA = "awe-some-wallpapers/2.0 (personal wallpaper curator; github arnavw/awe-some-wallpapers)"
 
@@ -135,14 +138,23 @@ SOURCE_MIX = {
     "fine art": ["cleveland", "smk", "commons_art", "met"],
     "illustration": ["commons_art", "cleveland", "smk", "aic"],
     "science": ["esawebb", "esahubble", "eso", "noirlab", "photojournal", "nasa"],
-    "night sky": ["eso", "commons", "unsplash"],
-    **{r: ["unsplash", "commons", "earthobs"] for r in ("ice/polar", "desert/ground", "water/coast", "volcanic")},
+    "night sky": ["eso", "commons", "unsplash", "flickr"],
+    "storm/weather": ["unsplash", "flickr", "commons"],
+    **{r: ["unsplash", "commons", "earthobs", "iss", "flickr"]
+       for r in ("ice/polar", "desert/ground", "water/coast", "volcanic")},
 }
+DEFAULT_MIX = ["unsplash", "unsplash", "commons", "flickr"]
+KEYED = {"unsplash": "unsplash_access_key", "iss": "eol_api_key", "flickr": "flickr_api_key"}
 
 
-def source_for(register: str) -> str:
-    """The source for a plan entry that names none (the curator usually does)."""
-    return random.choice(SOURCE_MIX.get(register, ["unsplash", "unsplash", "commons"]))
+def available(source: str, cfg: dict) -> bool:
+    """A known source whose key, if it needs one, is configured."""
+    return source in SOURCES and bool(cfg.get(KEYED[source], "") if source in KEYED else True)
+
+
+def source_for(register: str, cfg: dict) -> str:
+    """The source for a plan entry that names none, or names one that cannot run."""
+    return random.choice([s for s in SOURCE_MIX.get(register, DEFAULT_MIX) if available(s, cfg)] or ["commons"])
 
 
 def bootstrap_plan(cfg: dict) -> list:
@@ -159,7 +171,7 @@ def bootstrap_plan(cfg: dict) -> list:
     for r, purpose in [(r, "exploit") for r in exploit] + [(r, "surprise") for r in surprise]:
         fresh = [q for q in REGISTERS[r] if q.lower() not in used]
         q = random.choice(fresh) if fresh else random.choice(REGISTERS[r]) + " " + random.choice(["dawn", "dusk", "winter", "aerial"])
-        plan.append({"query": q, "register": r, "source": source_for(r), "purpose": purpose})
+        plan.append({"query": q, "register": r, "source": source_for(r, cfg), "purpose": purpose})
     return plan
 
 
@@ -175,7 +187,8 @@ def load_plan(cfg: dict) -> list:
         plan = [p for p in plan if p.get("query", "").lower() not in used and p.get("register") in REGISTERS
                 and not (p["query"].lower() in picked or picked.add(p["query"].lower()))][:8]
         for p in plan:
-            p.setdefault("source", source_for(p["register"]))
+            if not available(p.get("source", ""), cfg):
+                p["source"] = source_for(p["register"], cfg)
             p.setdefault("purpose", "exploit")
         if plan:
             return plan
@@ -297,16 +310,24 @@ MET_CANDIDATES = 12   # public-domain candidates handed to run_query per query
 MET_LOOKUPS = 36      # object lookups spent finding them
 
 
-def src_met(q: str, cfg: dict) -> list:
-    """Public-domain highlights from The Met matching q, in random order.
+MET_MEDIA = ("Paintings", "Prints", "Photographs")
 
-    Search is v1.1 (v1 was retired 2026-10-01): paginated at up to 500 IDs per
-    page, which covers nearly every highlights query in one request. It honors
-    hasImages and isHighlight but ignores isPublicDomain, and copyrighted
-    objects carry no primaryImage, so rights are checked on each object.
+
+def src_met(q: str, cfg: dict) -> list:
+    """Public-domain paintings, prints and photographs from The Met matching q,
+    in random order.
+
+    Search is v1.1 (v1 was retired 2026-10-01), up to 500 IDs per page. It
+    takes one medium per request, so each of MET_MEDIA is searched. It ignores
+    isPublicDomain, and copyrighted objects carry no primaryImage, so rights
+    are checked on each object. No isHighlight: the Met defines a highlight as
+    a popular and important work, which is the canon the curator turns away.
     """
-    params = urllib.parse.urlencode({"q": q, "hasImages": "true", "isHighlight": "true", "limit": 500})
-    ids = http_json(f"{MET_API}/v1.1/search?{params}").get("objectIDs") or []
+    ids = []
+    for medium in MET_MEDIA:
+        params = urllib.parse.urlencode({"q": q, "hasImages": "true", "medium": medium, "limit": 500})
+        ids += http_json(f"{MET_API}/v1.1/search?{params}").get("objectIDs") or []
+    ids = list(dict.fromkeys(ids))
     random.shuffle(ids)
     out = []
     for oid in ids[:MET_LOOKUPS]:
@@ -564,12 +585,109 @@ def src_commons_art(q: str, cfg: dict) -> list:
     return out
 
 
+# --------------------------------------------- ISS astronaut photography ----
+# NASA JSC's Gateway to Astronaut Photography of Earth. The API filters the
+# human-catalogued `frames` table (features, place names, cloud, tilt) and
+# joins `images`, which names each file's size, so only full-size, unannotated
+# frames that fit the screen are fetched. Queries are feature or place names
+# ("delta", "Lena", "sea ice"); the catalogue stores them in capitals.
+EOL = "https://eol.jsc.nasa.gov"
+ISS_RETURN = ("frames|mission|frames|roll|frames|frame|frames|feat|frames|geon|frames|cldp|frames|tilt|"
+              "images|directory|images|filename|images|width|images|height|images|annotated|images|filesize")
+CLOUD_SUBJECTS = re.compile(r"cloud|storm|cyclone|hurricane|typhoon|vortex|vortices|aurora|lightning|night", re.I)
+
+
+def iss_name(s: str) -> str:
+    """The catalogue's capitals in title case, keeping country acronyms."""
+    return re.sub(r"[A-Za-z]+", lambda m: m.group() if m.group() in ("USA", "UK", "UAE", "DRC") else m.group().capitalize(), s)
+
+
+def src_iss(q: str, cfg: dict) -> list:
+    """Full-size ISS frames whose catalogued features, then place names, match q.
+    Clear frames rank first unless q asks for weather."""
+    key = cfg.get("eol_api_key")
+    if not key:
+        return []
+    term = re.sub(r"[^A-Za-z0-9 .,-]", "", q).strip().upper()   # the only characters the API accepts
+    if not term:
+        return []
+    lo, hi, min_w = cfg.get("min_aspect", 1.2), cfg.get("max_aspect", 2.5), cfg.get("min_width", 3840)
+    rows = []
+    for field in ("feat", "geon"):
+        query = (f"frames|{field}|like|*{term}*|images|directory|like|*large*|"
+                 f"images|width|ge|{min_w}|images|annotated|eq|N")
+        params = urllib.parse.urlencode({"query": query, "return": ISS_RETURN, "key": key})
+        found = http_json(f"{EOL}/SearchPhotos/PhotosDatabaseAPI/PhotosDatabaseAPI.pl?{params}")
+        if not isinstance(found, list):   # errors (a bad key, a bad field) come back as an object
+            raise OSError(f"EOL API: {str(found)[:160]}")
+        rows += found
+        if len(rows) >= 30:
+            break
+    weather = bool(CLOUD_SUBJECTS.search(q))
+    out, ids = [], set()
+    for r in rows:
+        mission, roll, frame = r.get("frames.mission"), r.get("frames.roll"), r.get("frames.frame")
+        w, h = int(r.get("images.width") or 0), int(r.get("images.height") or 0)
+        if (mission, frame) in ids or not h or not lo <= w / h <= hi or int(r.get("images.filesize") or 0) > LARGE_MAX_BYTES:
+            continue
+        ids.add((mission, frame))
+        feature = (r.get("frames.feat") or "").split(",")[0].strip()
+        geon = (r.get("frames.geon") or "").replace("-", ", ")
+        title = ", ".join(iss_name(x) for x in (feature, geon) if x) or f"{mission}-{roll}-{frame}"
+        c = cand(f"iss:{mission}-{roll}-{frame}", f"{EOL}/DatabaseImages/{r['images.directory']}/{r['images.filename']}",
+                 title, f"{mission} crew, NASA JSC", "ISS astronaut photography",
+                 f"{EOL}/SearchPhotos/photo.pl?mission={mission}&roll={roll}&frame={frame}", "science")
+        cloud = int(float(r.get("frames.cldp") or 100))
+        c["rank"] = 0 if weather else (0 if cloud <= 10 else 1 if cloud <= 25 else 2)
+        out.append(c)
+    return out
+
+
+# --------------------------------------------------------------- Flickr ----
+# Openly licensed photos (the Creative Commons family, no known copyright, US
+# government, CC0, public domain), ordered by Flickr's interestingness within
+# the query. Interestingness only orders a query's results; favourite counts
+# would find postcards, as likes did on Unsplash.
+FLICKR_LICENSES = "1,2,3,4,5,6,7,8,9,10"
+FLICKR_SIZES = ("5k", "6k", "o", "4k")   # first one at least min_width wide is fetched
+
+
+def src_flickr(q: str, cfg: dict) -> list:
+    key = cfg.get("flickr_api_key")
+    if not key:
+        return []
+    params = urllib.parse.urlencode({
+        "method": "flickr.photos.search", "api_key": key, "text": q, "license": FLICKR_LICENSES,
+        "sort": "interestingness-desc", "content_types": 0, "media": "photos", "safe_search": 1,
+        "per_page": 60, "extras": "owner_name,url_o,url_6k,url_5k,url_4k",
+        "format": "json", "nojsoncallback": 1,
+    })
+    data = http_json(f"https://api.flickr.com/services/rest/?{params}")
+    if data.get("stat") != "ok":
+        raise OSError(f"flickr: {data.get('message', data)}")
+    lo, hi, min_w = cfg.get("min_aspect", 1.2), cfg.get("max_aspect", 2.5), cfg.get("min_width", 3840)
+    out = []
+    for i, p in enumerate(data.get("photos", {}).get("photo", [])):
+        size = next((s for s in FLICKR_SIZES if p.get(f"url_{s}") and int(p.get(f"width_{s}") or 0) >= min_w), None)
+        if not size:
+            continue
+        w, h = int(p[f"width_{size}"]), int(p[f"height_{size}"] or 0)
+        if not h or not lo <= w / h <= hi:
+            continue
+        c = cand(f"flickr:{p['id']}", p[f"url_{size}"], p.get("title") or q, p.get("ownername") or "Flickr",
+                 "Flickr", f"https://www.flickr.com/photos/{p['owner']}/{p['id']}")
+        c["rank"] = i // 10   # interestingness in bands of ten, shuffled within a band
+        out.append(c)
+    return out
+
+
 SOURCES = {
     "unsplash": src_unsplash, "commons": src_commons, "nasa": src_nasa,
     "met": src_met, "aic": src_aic, "cleveland": src_cleveland, "smk": src_smk, "commons_art": src_commons_art,
     **{site: (lambda s: lambda q, cfg: src_djangoplicity(s, q, cfg))(site) for site in DJANGOPLICITY},
     "photojournal": lambda q, cfg: src_nasa_science("photojournal", q, cfg),
     "earthobs": lambda q, cfg: src_nasa_science("earthobs", q, cfg),
+    "iss": src_iss, "flickr": src_flickr,
 }
 
 
@@ -593,9 +711,8 @@ def run_query(item: dict, cfg: dict, seen: set, meta: dict, run_subjects: set) -
     source's quality tier; 0 when it has none), shuffled within a rank.
     """
     q, register, source, purpose = item["query"], item["register"], item["source"], item.get("purpose", "exploit")
-    fn = SOURCES.get(source, src_unsplash)
     try:
-        cands = fn(q, cfg)
+        cands = SOURCES[source](q, cfg)
     except Exception as e:
         print(f"  {source} search failed for {q!r}: {e}", file=sys.stderr)
         return 0, f"search failed: {e}"
@@ -671,14 +788,22 @@ def intake(cfg: dict, want: int) -> None:
     total = 0
     run_subjects = set()
     retry = []
+    sys.path.insert(0, str(BASE))
+    from events import load
+    failures = {}
+    for e in load():
+        if e.get("type") == "query_error" and e.get("query"):
+            failures[e["query"].lower()] = failures.get(e["query"].lower(), 0) + 1
     for item in plan:
         print(f"query: {item['query']!r} [{item['source']}/{item['register']}/{item.get('purpose')}]")
         n, error = run_query(item, cfg, seen, meta, run_subjects)
         if error:   # an outage, not a verdict: keep the query for the next run
             events_append("query_error", query=item["query"], register=item["register"],
                           source=item["source"], purpose=item.get("purpose", "exploit"), error=error[:200])
-            retry.append(item)
-            continue
+            if failures.get(item["query"].lower(), 0) + 1 < MAX_ATTEMPTS:
+                retry.append(item)
+                continue
+            print(f"  {item['query']!r} failed {MAX_ATTEMPTS} times; ledgered as spent", file=sys.stderr)
         ledger_add(item["query"], item["register"], item["source"], item.get("purpose", "exploit"), n)
         total += n
     if retry:

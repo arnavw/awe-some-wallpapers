@@ -67,9 +67,15 @@ Write `~/.wallpaper-rotator/plan.json`: a JSON list of six objects
   - space: `esawebb`, `esahubble`, `eso`, `noirlab` (agency archives, 4K and
     up, observations only); `photojournal` (planetary, NASA/JPL); `nasa` (the
     NASA image library, a mixed archive)
-  - Earth from orbit: `earthobs` (NASA Earth Observatory: satellite and ISS views)
+  - Earth from orbit: `earthobs` (NASA Earth Observatory: satellite and ISS views);
+    `iss` (astronaut photographs, searched by catalogued feature or place name:
+    "delta", "Lena", "sea ice", "salt")
+  - more photography: `flickr` (openly licensed, ordered by interestingness)
+  `iss` and `flickr` need API keys; until they are configured, intake quietly
+  swaps in a keyless source for the same register.
   - art: `cleveland`, `smk` (open-access museums at high resolution);
-    `commons_art` (prints, plates and paintings across Commons); `met`, `aic`
+    `commons_art` (prints, plates and paintings across Commons); `met`
+    (paintings, prints and photographs, highlights excluded); `aic`
   Agency, museum and Commons searches want names, not adjectives: an object,
   phenomenon, place, artist or series ("Carina Nebula", "Kiyochika night",
   "Haeckel radiolaria", "Lena delta").

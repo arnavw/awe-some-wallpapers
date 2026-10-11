@@ -1,5 +1,7 @@
 {
   "unsplash_access_key": "",
+  "eol_api_key": "",
+  "flickr_api_key": "",
   "curator_model": "claude-opus-5-5",
   "curator_effort": "xhigh",
   "images_per_query": 3,
