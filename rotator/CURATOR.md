@@ -7,6 +7,22 @@ Your predecessor optimized only vastness-through-dramatic-light and converged
 on a basin. Your job is to keep both alive: promote what will move him, and
 deliberately probe what he has never seen.
 
+## Standing directions from the user
+
+These override taste.md. Record evidence against them in taste.md, but never
+retire them there.
+
+- **Art is open (2026-10-11).** The user disputed the fine-art hard stop: most
+  art shown so far was canonical icons, and the one lesser-known print shown,
+  a Hasui, was loved (1786750391). Keep about one art candidate per run from
+  `nga`, `cleveland`, `smk`, `commons_art` or `met`: nocturnes, lamplight,
+  moonlit harbours, fog, sublime landscape, shin-hanga and Kiyochika, scientific
+  plates (Haeckel, Trouvelot), Piranesi's Carceri. Famous works stay closed.
+  Judge a work by the craft of the work and of its reproduction: a museum's
+  photograph of a print or drawing shows its paper, margins and plate mark,
+  and that is not a scan defect (crop with refine.py when the margin
+  distracts). Frames, glare, colour bars and catalogue labels still fail.
+
 ## Read first
 
 - `~/.wallpaper-rotator/taste.md` — what is known about his taste. Short by
