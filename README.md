@@ -10,8 +10,10 @@ first and slowly kills the second. This one is built to keep both alive.
 
 1. **Intake** (`fetch.py`, checked hourly) keeps about a dozen approved
    wallpapers waiting: whenever the reserve runs low it runs six queries across
-   Unsplash, Wikimedia Commons Featured Pictures, The Met, the Art Institute
-   of Chicago, and NASA. The queries come from the curator's own plan; the
+   photography (Unsplash, Wikimedia Commons Featured and Quality images), the
+   ESA/Webb, ESA/Hubble, ESO and NOIRLab archives, NASA's Photojournal, Earth
+   Observatory and image library, and open-access art (Cleveland, SMK, The
+   Met, the Art Institute of Chicago, Commons). The queries come from the curator's own plan; the
    first run bootstraps them from a Thompson-sampling bandit over twenty
    registers (night sky, storm, volcanic, ice, art, illustration, science,
    wildlife, interiors, industrial, underwater, …). Every query is ledgered

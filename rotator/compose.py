@@ -38,6 +38,7 @@ IPAD = IMAGES / ".ipad"
 # Fill-scaling crops the image to the screen's aspect; captions must sit in
 # the surviving region. 1.547 = 16" MacBook Pro.
 SCREEN_ASPECT = 1.547
+DISPLAY_MAX_W = 5120   # Mac copies never need more; keeps files and iCloud sync small
 
 # iPad Pro M4/M5: 13" 2752x2064, 11" 2420x1668. Scaled to cover the long edge,
 # a 2752 px square shows its centre 2064 px (13") or 1897 px (11") in both
@@ -189,6 +190,8 @@ def compose(src: Path, dest: Path, meta: dict) -> None:
             img = center_crop_to_screen(img)
         else:
             img = gallery_mat(img)
+    if img.width > DISPLAY_MAX_W:   # agency originals run past 14,000 px; screens don't
+        img = img.resize((DISPLAY_MAX_W, round(img.height * DISPLAY_MAX_W / img.width)), Image.LANCZOS)
     img = draw_caption(img, meta)
     dest.parent.mkdir(exist_ok=True)
     img.save(dest, quality=93, subsampling=0)

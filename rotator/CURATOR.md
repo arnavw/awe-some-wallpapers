@@ -62,9 +62,17 @@ deliberately probe what he has never seen.
 
 Write `~/.wallpaper-rotator/plan.json`: a JSON list of six objects
 `{"query": …, "register": …, "source": …, "purpose": …}`.
-- Registers are the keys of `REGISTERS` in `fetch.py`; sources are
-  `unsplash`, `commons`, `met`, `aic`, `nasa` (art registers → met/aic;
-  science → nasa/commons; photography → unsplash/commons).
+- Registers are the keys of `REGISTERS` in `fetch.py`. Sources:
+  - photography: `unsplash`; `commons` (Featured and Quality images, best tier first)
+  - space: `esawebb`, `esahubble`, `eso`, `noirlab` (agency archives, 4K and
+    up, observations only); `photojournal` (planetary, NASA/JPL); `nasa` (the
+    NASA image library, a mixed archive)
+  - Earth from orbit: `earthobs` (NASA Earth Observatory: satellite and ISS views)
+  - art: `cleveland`, `smk` (open-access museums at high resolution);
+    `commons_art` (prints, plates and paintings across Commons); `met`, `aic`
+  Agency, museum and Commons searches want names, not adjectives: an object,
+  phenomenon, place, artist or series ("Carina Nebula", "Kiyochika night",
+  "Haeckel radiolaria", "Lena delta").
 - Three `exploit` queries for high-posterior registers; two `surprise`
   queries for the least-pulled registers or empty coverage cells; one
   `orthogonal` query: a treatment he loves applied to a subject he has never

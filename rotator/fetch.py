@@ -27,13 +27,20 @@ curation pass runs, so a stalled curator cannot bury itself in downloads.
 The default of 30 is about two intakes: a queue much larger than that no
 longer fits the curator's view at once, and a recovery run slows several-fold.
 
-Sources, chosen per register — all keyless except Unsplash:
-  unsplash  photography, relevance-ranked, no like-floor (the curator's eyes
-            are the quality gate; ranking by likes only ever found postcards)
-  commons   Wikimedia Commons Featured Pictures (photo registers)
-  met       The Met open access: public-domain highlights, direct hi-res
-  aic       Art Institute of Chicago: public-domain works over IIIF
-  nasa      NASA image library: space and science imagery
+Sources, chosen per register (SOURCE_MIX, or the curator's plan) — all keyless
+except Unsplash:
+  unsplash      photography, relevance-ranked, no like-floor (the curator's eyes
+                are the quality gate; ranking by likes only ever found postcards)
+  commons       Wikimedia Commons Featured and Quality images, best tier first
+  esawebb, esahubble, eso, noirlab
+                agency astronomy archives (CC BY 4.0), sized before download
+  photojournal  NASA/JPL planetary images, via science.nasa.gov search
+  earthobs      NASA Earth Observatory satellite and ISS views, same route
+  nasa          NASA image library: a mixed science archive
+  cleveland     Cleveland Museum of Art open access (CC0)
+  smk           SMK, National Gallery of Denmark (public domain)
+  commons_art   prints, plates and paintings across all of Commons
+  met, aic      The Met and the Art Institute of Chicago, public domain
 
 Stdlib only; runs on the stock macOS python3 from launchd.
 """
@@ -80,7 +87,6 @@ REGISTERS = {
     "underwater":     ["kelp forest light", "coral reef wide", "freediver cave", "whale shark silhouette"],
     "human":          ["monk temple morning", "fisherman fog lake", "shepherd mountain storm", "market lantern night"],
 }
-ART_REGISTERS = {"fine art", "illustration"}
 
 # Fetch-layer junk filter: archival document photography and event coverage
 # that free-text search keeps returning.
@@ -125,12 +131,18 @@ def events_append(type_: str, **data) -> None:
 
 # ----------------------------------------------------------------- plan ----
 
+SOURCE_MIX = {
+    "fine art": ["cleveland", "smk", "commons_art", "met"],
+    "illustration": ["commons_art", "cleveland", "smk", "aic"],
+    "science": ["esawebb", "esahubble", "eso", "noirlab", "photojournal", "nasa"],
+    "night sky": ["eso", "commons", "unsplash"],
+    **{r: ["unsplash", "commons", "earthobs"] for r in ("ice/polar", "desert/ground", "water/coast", "volcanic")},
+}
+
+
 def source_for(register: str) -> str:
-    if register in ART_REGISTERS:
-        return random.choice(["met", "aic"])
-    if register == "science":
-        return random.choice(["nasa", "commons"])
-    return random.choice(["unsplash", "unsplash", "commons"])
+    """The source for a plan entry that names none (the curator usually does)."""
+    return random.choice(SOURCE_MIX.get(register, ["unsplash", "unsplash", "commons"]))
 
 
 def bootstrap_plan(cfg: dict) -> list:
@@ -178,7 +190,19 @@ def http_json(url: str, headers=None) -> dict:
         return json.load(r)
 
 
+def http_text(url: str) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return r.read().decode("utf-8", "replace")
+
+
+def ascii_url(url: str) -> str:
+    """Percent-encode any non-ASCII character (NASA slugs carry curly quotes)."""
+    return re.sub(r"[^\x21-\x7e]", lambda m: urllib.parse.quote(m.group()), url)
+
+
 def download(url: str, dest: Path, headers=None) -> None:
+    url = ascii_url(url)
     delay = 5
     for attempt in range(4):
         try:
@@ -337,7 +361,216 @@ def src_nasa(q: str, cfg: dict) -> list:
     return out
 
 
-SOURCES = {"unsplash": src_unsplash, "commons": src_commons, "met": src_met, "aic": src_aic, "nasa": src_nasa}
+# ---------------------------------------------------- agency archives ----
+# ESA/Webb, ESA/Hubble, ESO and NOIRLab run the same platform (djangoplicity):
+# a search page embeds its results as `id: '...'`, and every image has a JSON
+# record (/images/<id>/api/json/) with title, credit, rights (CC BY 4.0), type
+# and each rendition's pixel size, so size and shape are checked before any
+# download. "Large" runs to 15,000+ px and hundreds of megabytes; the
+# "publicationjpg" rendition (4000 px on the long side) stands in whenever
+# Large is over 6000 px wide or 60 MB (ESO has none, so huge ESO files skip).
+DJANGOPLICITY = {
+    "esawebb": ("https://esawebb.org", "ESA/Webb", True),
+    "esahubble": ("https://esahubble.org", "ESA/Hubble", True),
+    "eso": ("https://www.eso.org/public", "ESO", False),
+    "noirlab": ("https://noirlab.edu/public", "NOIRLab", True),
+}
+LARGE_MAX_BYTES = 60_000_000
+NOT_A_PICTURE = re.compile(r"artist|illustration|impression|concept|annotated|labell?ed|chart|spectrum|diagram|"
+                           r"comparison|infographic|\bgraphs?\b|\bmap\b|logo|poster|timeline|(?<!-)\bscale\b|compass", re.I)
+
+
+def dp_text(value) -> str:
+    """Three of the sites send strings as Python bytes reprs ("b'...'")."""
+    s = str(value or "")
+    if re.match(r"^b(['\"]).*\1$", s, re.S):
+        import ast
+        try:
+            return ast.literal_eval(s).decode("utf-8", "replace")
+        except (ValueError, SyntaxError):
+            return s[2:-1]
+    return s
+
+
+def src_djangoplicity(site: str, q: str, cfg: dict) -> list:
+    base, label, has_publication = DJANGOPLICITY[site]
+    html = http_text(f"{base}/images/?{urllib.parse.urlencode({'search': q})}")
+    ids = list(dict.fromkeys(re.findall(r"id: '([a-z0-9-]+)'", html)))[:12]
+    lo, hi, min_w = cfg.get("min_aspect", 1.2), cfg.get("max_aspect", 2.5), cfg.get("min_width", 3840)
+    out = []
+    for image_id in ids:
+        d = http_json(f"{base}/images/{image_id}/api/json/")
+        time.sleep(0.3)
+        title = dp_text(d.get("Title"))
+        if d.get("Type") not in (None, "Observation", "Photographic") or NOT_A_PICTURE.search(title):
+            continue
+        large = next((r for r in d.get("Resources", []) if r.get("ResourceType") == "Large"), None)
+        if not large or not large.get("Dimensions"):
+            continue
+        w, h = (int(v) for v in large["Dimensions"][:2])
+        if not h or not lo <= w / h <= hi:
+            continue
+        url = large["URL"]
+        if has_publication and (w > 6000 or large.get("FileSize", 0) > LARGE_MAX_BYTES):
+            url, w = url.replace("/large/", "/publicationjpg/"), 4000   # plenty for a screen
+        elif large.get("FileSize", 0) > LARGE_MAX_BYTES:
+            continue
+        if w < min_w:
+            continue
+        out.append(cand(f"{site}:{image_id}", url, title, dp_text(d.get("Credit")) or label, label,
+                        f"{base}/images/{image_id}/", "science"))
+    return out
+
+
+# --------------------------------------------- NASA science (WordPress) ----
+# Earth Observatory and Photojournal moved to science.nasa.gov, whose
+# WordPress API searches posts by keyword. Each post page's srcset names the
+# original's width and height, and NASA's image resizer serves any width of it.
+NASA_SCIENCE = "https://science.nasa.gov/wp-json/wp/v2"
+PHOTOJOURNAL_CATEGORY = 19797
+EO_SKIP = re.compile(r"map|chart|graph|anomal|trend|plot|legend|_tmo_|_amo_", re.I)
+# Photojournal also files lab and engineering shots and explainer graphics.
+PJ_SKIP = re.compile(r"prototype|testing|\btests?\b|robot|engineers?|clean ?room|assembl|mock-?up|\bteam\b|"
+                     r"may have|\bcould\b|\bhow\b|\bwhat\b|\bwhy\b|infographic|poster", re.I)
+
+
+def nasa_science_image(page: str, kind: str):
+    """(url at <= 5120 px wide, width, height) of a post's own image, or None.
+
+    The post's og:image names its picture (site templates carry other large
+    images); Earth Observatory's og:image is the _th thumbnail of the _lrg
+    file. The original's size is the largest entry in that file's srcset.
+    """
+    html = curl_text(page)
+    og = re.search(r'<meta property="og:image" content="https://assets\.science\.nasa\.gov/content/dam/([^"]+?)/jcr:content', html)
+    if not og:
+        return None
+    path = og.group(1)
+    if kind == "earthobs":
+        path = re.sub(r"_th\.(jpe?g)$", r"_lrg.\1", path)
+    base = f"https://assets.science.nasa.gov/dynamicimage/assets/{path}"
+    dims = [(int(w), int(h)) for w, h in re.findall(re.escape(base) + r"\?w=(\d+)&amp;h=(\d+)", html)]
+    if not dims:
+        return None
+    w, h = max(dims)
+    tw = min(w, 5120)
+    return f"{base}?w={tw}&h={round(h * tw / w)}&fit=crop", tw, h * tw / w
+
+
+def curl_text(url: str) -> str:
+    """GET through /usr/bin/curl. science.nasa.gov answers Python's TLS client
+    with 403 whatever the headers (always on /wp-json/, on pages once it has
+    seen a few), while curl's handshake passes; outside our control, so curl it
+    is. Its images live on assets.science.nasa.gov, which serves Python fine.
+    Raises on any HTTP or network failure, like http_text."""
+    out = subprocess.run(["/usr/bin/curl", "-sSfL", "--max-time", "30", "-A", UA, ascii_url(url)],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        raise OSError(f"curl exit {out.returncode}: {out.stderr.strip()[:120]}")
+    return out.stdout
+
+
+def curl_json(url: str):
+    return json.loads(curl_text(url))
+
+
+def src_nasa_science(kind: str, q: str, cfg: dict) -> list:
+    if kind == "photojournal":
+        params = {"search": q, "categories": PHOTOJOURNAL_CATEGORY, "per_page": 12, "_fields": "link,title"}
+        posts = [(p["link"], p["title"]["rendered"]) for p in curl_json(f"{NASA_SCIENCE}/posts?{urllib.parse.urlencode(params)}")]
+        label = "NASA/JPL Photojournal"
+    else:
+        params = {"search": q, "per_page": 20, "_fields": "url,title"}
+        posts = [(p["url"], p["title"]) for p in curl_json(f"{NASA_SCIENCE}/search?{urllib.parse.urlencode(params)}")
+                 if "/earth/earth-observatory/" in p.get("url", "")]
+        label = "NASA Earth Observatory"
+    lo, hi, min_w = cfg.get("min_aspect", 1.2), cfg.get("max_aspect", 2.5), cfg.get("min_width", 3840)
+    out = []
+    for link, title in posts[:12]:
+        found = nasa_science_image(link, kind)
+        time.sleep(0.3)
+        if not found:
+            continue
+        url, w, h = found
+        if w < min_w or not lo <= w / h <= hi or (kind == "earthobs" and EO_SKIP.search(url)):
+            continue
+        title = re.sub(r"&#8217;", "’", re.sub(r"&#821[12];", "–", title))
+        if NOT_A_PICTURE.search(title) or (kind == "photojournal" and PJ_SKIP.search(title)):
+            continue
+        out.append(cand(f"{kind}:{url.split('?')[0]}", url, title, label, label, link, "science"))
+    return out
+
+
+# ------------------------------------------------------------- museums ----
+
+def src_cleveland(q: str, cfg: dict) -> list:
+    """Cleveland Museum of Art open access (CC0). The print JPEG reaches ~3400 px."""
+    params = urllib.parse.urlencode({"q": q, "has_image": 1, "cc0": 1, "limit": 30})
+    out = []
+    for a in http_json(f"https://openaccess-api.clevelandart.org/api/artworks/?{params}").get("data", []):
+        if a.get("type") not in ("Painting", "Print", "Drawing", "Photograph"):   # no bowls or lacquer boxes
+            continue
+        img = (a.get("images") or {}).get("print") or {}
+        if not img.get("url") or max(int(img.get("width") or 0), int(img.get("height") or 0)) < cfg.get("art_min_dimension", 2400):
+            continue
+        who = ((a.get("creators") or [{}])[0].get("description") or "").split(" (")[0]
+        credit = ", ".join(x for x in (who, a.get("creation_date")) if x) or "Cleveland Museum of Art"
+        out.append(cand(f"cleveland:{a['id']}", img["url"], a.get("title", q), credit,
+                        "Cleveland Museum of Art", a.get("url", ""), "art"))
+    return out
+
+
+def src_smk(q: str, cfg: dict) -> list:
+    """SMK, the National Gallery of Denmark (public domain)."""
+    params = urllib.parse.urlencode({"keys": q, "filters": "[has_image:true],[public_domain:true]", "offset": 0, "rows": 30})
+    out = []
+    for a in http_json(f"https://api.smk.dk/api/v1/art/search/?{params}").get("items", []):
+        if not a.get("image_native") or max(a.get("image_width") or 0, a.get("image_height") or 0) < cfg.get("art_min_dimension", 2400):
+            continue
+        title = ((a.get("titles") or [{}])[0]).get("title") or q
+        who = ((a.get("production") or [{}])[0]).get("creator") or ""
+        if "," in who:   # "Neer, Aert van der" -> "Aert van der Neer"
+            who = " ".join(reversed([p.strip() for p in who.split(",", 1)]))
+        period = ((a.get("production_date") or [{}])[0]).get("period") or ""
+        out.append(cand(f"smk:{a['object_number']}", a["image_native"], title,
+                        ", ".join(x for x in (who, period) if x) or "SMK", "SMK", a.get("frontend_url", ""), "art"))
+    return out
+
+
+def src_commons_art(q: str, cfg: dict) -> list:
+    """All of Commons at artwork size: prints, plates and paintings are rarely
+    Featured or Quality images, so this search drops that restriction."""
+    width = cfg.get("art_min_dimension", 2400)
+    phrase = f'"{q}"' if " " in q.strip() else q
+    params = urllib.parse.urlencode({
+        "action": "query", "format": "json", "generator": "search",
+        "gsrsearch": f"{phrase} fileres:>{width - 1}", "gsrnamespace": 6, "gsrlimit": 30,
+        "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata",
+        "iiextmetadatafilter": "Artist|Assessments", "iiurlwidth": 3840,
+    })
+    out = []
+    for p in http_json(f"https://commons.wikimedia.org/w/api.php?{params}").get("query", {}).get("pages", {}).values():
+        info = (p.get("imageinfo") or [{}])[0]
+        if info.get("mime") not in ("image/jpeg", "image/png") or max(info.get("width", 0), info.get("height", 0)) < width:
+            continue
+        ext = info.get("extmetadata", {})
+        artist = re.sub(r"<[^>]+>", "", ext.get("Artist", {}).get("value", "")).strip()
+        c = cand(f"commons:{p['pageid']}", info.get("thumburl") or info.get("url"),
+                 re.sub(r"^File:|\.[A-Za-z]+$", "", p.get("title", "")), artist or "Unknown",
+                 "Wikimedia Commons", info.get("descriptionshorturl", ""), "art")
+        tiers = ext.get("Assessments", {}).get("value", "").split("|")
+        c["rank"] = min((COMMONS_TIERS[t] for t in tiers if t in COMMONS_TIERS), default=3)
+        out.append(c)
+    return out
+
+
+SOURCES = {
+    "unsplash": src_unsplash, "commons": src_commons, "nasa": src_nasa,
+    "met": src_met, "aic": src_aic, "cleveland": src_cleveland, "smk": src_smk, "commons_art": src_commons_art,
+    **{site: (lambda s: lambda q, cfg: src_djangoplicity(s, q, cfg))(site) for site in DJANGOPLICITY},
+    "photojournal": lambda q, cfg: src_nasa_science("photojournal", q, cfg),
+    "earthobs": lambda q, cfg: src_nasa_science("earthobs", q, cfg),
+}
 
 
 # ------------------------------------------------------------------ run ----
