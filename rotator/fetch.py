@@ -31,7 +31,7 @@ Sources, chosen per register (SOURCE_MIX, or the curator's plan) — all keyless
 except Unsplash, ISS and Flickr, which sit out until their key is in config:
   unsplash      photography, relevance-ranked, no like-floor (the curator's eyes
                 are the quality gate; ranking by likes only ever found postcards)
-  commons       Wikimedia Commons Featured and Quality images, best tier first
+  commons       Wikimedia Commons: Featured and Quality images first, then the rest
   esawebb, esahubble, eso, noirlab
                 agency astronomy archives (CC BY 4.0), sized before download
   photojournal  NASA/JPL planetary images, via science.nasa.gov search
@@ -269,31 +269,44 @@ def src_unsplash(q: str, cfg: dict) -> list:
 COMMONS_TIERS = {"featured": 0, "potd": 0, "poty": 0, "valued": 1, "quality": 2}
 
 
-def src_commons(q: str, cfg: dict) -> list:
-    """Featured and Quality images at least min_width wide, best tier first.
+COMMONS_ASSESSED = "incategory:Featured_pictures_on_Wikimedia_Commons|Quality_images"
 
-    Featured Pictures alone is ~14k files at 4K and most specific queries find
-    none; Quality images (~300k at 4K) is a technical floor, so its candidates
-    rank behind Featured and Valued ones. Multi-word queries are quoted so
-    stray metadata words don't match. Thumbnails stop at 3840 px.
-    """
-    phrase = f'"{q}"' if " " in q.strip() else q
-    width = cfg.get("min_width", 3840)
+
+def commons_search(gsrsearch: str, sort: str) -> list:
+    """Commons file pages matching a CirrusSearch string, with their imageinfo."""
     params = urllib.parse.urlencode({
         "action": "query", "format": "json", "generator": "search",
-        "gsrsearch": f"{phrase} filew:>{width - 1} incategory:Featured_pictures_on_Wikimedia_Commons|Quality_images",
-        "gsrnamespace": 6, "gsrlimit": 30, "gsrsort": "random",
+        "gsrsearch": gsrsearch, "gsrnamespace": 6, "gsrlimit": 30, "gsrsort": sort,
         "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata",
         "iiextmetadatafilter": "Artist|Assessments", "iiurlwidth": 3840,
     })
-    data = http_json(f"https://commons.wikimedia.org/w/api.php?{params}")
-    out = []
-    for p in data.get("query", {}).get("pages", {}).values():
+    return list(http_json(f"https://commons.wikimedia.org/w/api.php?{params}").get("query", {}).get("pages", {}).values())
+
+
+def src_commons(q: str, cfg: dict) -> list:
+    """Screen-shaped files at least min_width wide, assessed ones first.
+
+    Featured and Quality images come first (in random order), but alone they
+    leave most specific queries empty: "hair ice" has none at 4K, all of
+    Commons has 37. So when the assessed set is short, the whole archive is
+    searched too, most relevant first, and ranks behind it. Multi-word queries
+    are quoted: unquoted, "sun pillar" matches nebulae and temple pillars.
+    Shape is checked from imageinfo before download. Thumbnails stop at 3840 px.
+    """
+    phrase = f'"{q}"' if " " in q.strip() else q
+    width = cfg.get("min_width", 3840)
+    lo, hi = cfg.get("min_aspect", 1.2), cfg.get("max_aspect", 2.5)
+    pages = commons_search(f"{phrase} filew:>{width - 1} {COMMONS_ASSESSED}", "random")
+    if len(pages) < 8:
+        time.sleep(1)
+        pages += commons_search(f"{phrase} filew:>{width - 1}", "relevance")
+    out, ids = [], set()
+    for p in pages:
         info = (p.get("imageinfo") or [{}])[0]
-        if info.get("mime") not in ("image/jpeg", "image/png"):
+        w, h = info.get("width", 0), info.get("height", 0)
+        if p["pageid"] in ids or info.get("mime") not in ("image/jpeg", "image/png") or w < width or not h or not lo <= w / h <= hi:
             continue
-        if info.get("width", 0) < width:
-            continue
+        ids.add(p["pageid"])
         ext = info.get("extmetadata", {})
         tiers = ext.get("Assessments", {}).get("value", "").split("|")
         title = re.sub(r"^File:|\.[A-Za-z]+$", "", p.get("title", ""))

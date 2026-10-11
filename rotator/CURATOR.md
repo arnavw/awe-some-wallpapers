@@ -63,7 +63,7 @@ deliberately probe what he has never seen.
 Write `~/.wallpaper-rotator/plan.json`: a JSON list of six objects
 `{"query": …, "register": …, "source": …, "purpose": …}`.
 - Registers are the keys of `REGISTERS` in `fetch.py`. Sources:
-  - photography: `unsplash`; `commons` (Featured and Quality images, best tier first)
+  - photography: `unsplash`; `commons` (Featured and Quality images first, then all of Commons at 4K)
   - space: `esawebb`, `esahubble`, `eso`, `noirlab` (agency archives, 4K and
     up, observations only); `photojournal` (planetary, NASA/JPL); `nasa` (the
     NASA image library, a mixed archive)
