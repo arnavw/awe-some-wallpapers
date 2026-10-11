@@ -8,17 +8,19 @@
 Usage: refine.py <filename> <x0> <y0> <x1> <y1>
 Coordinates are FRACTIONS of image width/height (0.0-1.0) describing the
 region of interest. The crop is expanded to the screen aspect ratio around
-that region, upscaled to 3840 wide if needed (Lanczos + gentle unsharp), and
-written back over the queued original — so a stunning detail inside a merely
-good image can become the wallpaper (e.g. the Creation of Adam fingers).
+that region and written back over the queued original — so a stunning detail
+inside a merely good image can become the wallpaper (e.g. the Creation of
+Adam fingers). A crop narrower than MIN_WIDTH is refused, never upscaled: a
+detail is worth keeping only if the source resolves it at screen size.
 """
 
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageFilter
+from PIL import Image
 
 SCREEN_ASPECT = 1.547
+MIN_WIDTH = 3840
 QUEUE = Path.home() / ".wallpaper-rotator" / "queue"
 IMAGES = Path.home() / "Pictures" / "WorldWallpapers"
 
@@ -41,9 +43,9 @@ cw, ch = cw * scale, ch * scale
 x0 = max(0, min(w - cw, cx - cw / 2))
 y0 = max(0, min(h - ch, cy - ch / 2))
 
+if round(cw) < MIN_WIDTH:
+    sys.exit(f"refused: at screen shape that region is {round(cw)} px wide, under {MIN_WIDTH}; "
+             f"widen it or judge the full frame. {name} is unchanged.")
 crop = img.crop((round(x0), round(y0), round(x0 + cw), round(y0 + ch)))
-if crop.width < 3840:
-    crop = crop.resize((3840, round(3840 / SCREEN_ASPECT)), Image.LANCZOS)
-    crop = crop.filter(ImageFilter.UnsharpMask(radius=2, percent=60, threshold=3))
 crop.save(src, quality=95, subsampling=0)
 print(f"refined {name}: {crop.width}x{crop.height} crop at ({fx0},{fy0})-({fx1},{fy1})")

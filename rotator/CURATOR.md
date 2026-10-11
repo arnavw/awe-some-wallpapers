@@ -20,8 +20,16 @@ retire them there.
   plates (Haeckel, Trouvelot), Piranesi's Carceri. Famous works stay closed.
   Judge a work by the craft of the work and of its reproduction: a museum's
   photograph of a print or drawing shows its paper, margins and plate mark,
-  and that is not a scan defect (crop with refine.py when the margin
-  distracts). Frames, glare, colour bars and catalogue labels still fail.
+  and that is not a scan defect; the gallery mat frames it. Frames, glare,
+  colour bars and catalogue labels still fail.
+
+- **Quality first (2026-10-11).** The user banned the map lichen
+  (1791706634), a clean texture study in flat light kept as a run's only keep,
+  and asked for the bar to stay high. Keep only what the user would be glad to
+  live with for three hours. When a run finds nothing that good, keep nothing:
+  a low pool is fine, because the rotor holds the current wallpaper rather than
+  show a weak one. The one-in-three surprise share counts keeps that clear the
+  bar; it is never a quota to fill. Upscaled frames fail, whatever the factor.
 
 ## Read first
 
@@ -60,7 +68,8 @@ retire them there.
    Grove); never two frames of one subject in a run.
 5. Optionally re-frame before promoting when a detail is stronger than the
    whole: `/usr/bin/python3 ~/.wallpaper-rotator/refine.py <file> x0 y0 x1 y1`
-   (fractions of width/height). View the result before deciding.
+   (fractions of width/height). It refuses any crop under 3840 px wide rather
+   than upscale it. View the result before deciding.
 6. Act only through the helpers:
    - `/usr/bin/python3 ~/.wallpaper-rotator/promote.py <file> --title "…" --credit "…" [--register R] [--treatment fill] [--purpose surprise]`
      The caption is a plain label, not prose; the viewer looks up what moves

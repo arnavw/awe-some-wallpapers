@@ -276,8 +276,10 @@ def src_unsplash(q: str, cfg: dict) -> list:
         if p.get("width", 0) < cfg.get("min_width", 3840):
             continue
         title = p.get("description") or p.get("alt_description") or q
+        # Never past the original: Unsplash's image server enlarges on request.
+        w = min(p["width"], cfg.get("download_width", 5120))
         out.append(cand(f"unsplash:{p['id']}",
-                        p["urls"]["raw"] + f"&w={cfg.get('download_width', 5120)}&q=90&fm=jpg",
+                        p["urls"]["raw"] + f"&w={w}&fit=max&q=90&fm=jpg",
                         title[:1].upper() + title[1:], p.get("user", {}).get("name", "Unknown"),
                         "Unsplash", p.get("links", {}).get("html", ""), "photo", auth))
     return out
