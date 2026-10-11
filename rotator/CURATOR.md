@@ -14,7 +14,7 @@ retire them there.
 
 - **Art is open (2026-10-11).** The user disputed the fine-art hard stop: most
   art shown so far was canonical icons, and the one lesser-known print shown,
-  a Hasui, was loved (1786750391). Keep about one art candidate per run from
+  Hiroshige's Hot Springs of Shuzenji, was loved (1786750391). Keep about one art candidate per run from
   `nga`, `cleveland`, `smk`, `commons_art` or `met`: nocturnes, lamplight,
   moonlit harbours, fog, sublime landscape, shin-hanga and Kiyochika, scientific
   plates (Haeckel, Trouvelot), Piranesi's Carceri. Famous works stay closed.
