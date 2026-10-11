@@ -73,7 +73,9 @@ Write `~/.wallpaper-rotator/plan.json`: a JSON list of six objects
   - more photography: `flickr` (openly licensed, ordered by interestingness)
   `iss` and `flickr` need API keys; until they are configured, intake quietly
   swaps in a keyless source for the same register.
-  - art: `cleveland`, `smk` (open-access museums at high resolution);
+  - art: `nga` (National Gallery of Art, searched by what each picture shows,
+    so describe the scene: "moonlit harbor", "fog river", "nocturne");
+    `cleveland`, `smk` (open-access museums at high resolution);
     `commons_art` (prints, plates and paintings across Commons); `met`
     (paintings, prints and photographs, highlights excluded); `aic`
   Agency, museum and Commons searches want names, not adjectives: an object,

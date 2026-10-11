@@ -41,12 +41,15 @@ except Unsplash, ISS and Flickr, which sit out until their key is in config:
   smk           SMK, National Gallery of Denmark (public domain)
   commons_art   prints, plates and paintings across all of Commons
   met, aic      The Met and the Art Institute of Chicago, public domain
+  nga           National Gallery of Art open access, searched by what each
+                picture shows (its published alt text), from a monthly local index
   iss           ISS astronaut photography of Earth (needs eol_api_key)
   flickr        Flickr, openly licensed, by interestingness (needs flickr_api_key)
 
 Stdlib only; runs on the stock macOS python3 from launchd.
 """
 
+import csv
 import hashlib
 import json
 import random
@@ -135,8 +138,8 @@ def events_append(type_: str, **data) -> None:
 # ----------------------------------------------------------------- plan ----
 
 SOURCE_MIX = {
-    "fine art": ["cleveland", "smk", "commons_art", "met"],
-    "illustration": ["commons_art", "cleveland", "smk", "aic"],
+    "fine art": ["nga", "cleveland", "smk", "commons_art", "met"],
+    "illustration": ["commons_art", "nga", "cleveland", "smk", "aic"],
     "science": ["esawebb", "esahubble", "eso", "noirlab", "photojournal", "nasa"],
     "night sky": ["eso", "commons", "unsplash", "flickr"],
     "storm/weather": ["unsplash", "flickr", "commons"],
@@ -598,6 +601,75 @@ def src_commons_art(q: str, cfg: dict) -> list:
     return out
 
 
+# ---------------------------------------------- National Gallery of Art ----
+# NGA publishes its open-access collection as CSVs on GitHub, each image with
+# AI-written alt text describing what it shows. Searching that text finds
+# pictures by content ("moonlit harbor", "fog over a river") where titles
+# rarely say it. The CSVs (~170 MB) are fetched once a month and reduced to a
+# local JSON-lines index of open-access paintings, prints, drawings and
+# photographs; searches run against the index.
+NGA_DATA = "https://raw.githubusercontent.com/NationalGalleryOfArt/opendata/main/data"
+NGA_INDEX = BASE / "cache" / "nga.jsonl"
+NGA_MAX_AGE = 30 * 86400
+NGA_CLASSES = ("Painting", "Print", "Drawing", "Photograph")
+
+
+def build_nga_index(dest: Path) -> None:
+    """Download the NGA CSVs and write the index to dest, replacing it whole."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    csv.field_size_limit(1 << 24)   # provenance and alt-text fields run long
+    objects_csv, images_csv = dest.parent / "nga-objects.csv", dest.parent / "nga-images.csv"
+    try:
+        download(f"{NGA_DATA}/objects.csv", objects_csv)
+        download(f"{NGA_DATA}/published_images.csv", images_csv)
+        objects = {}
+        with open(objects_csv, newline="", encoding="utf-8") as f:
+            for o in csv.DictReader(f):
+                if o["classification"] in NGA_CLASSES:
+                    objects[o["objectid"]] = (o["title"], o["displaydate"], o["attribution"], o["classification"])
+        tmp = dest.with_suffix(".new")
+        with open(images_csv, newline="", encoding="utf-8") as f, open(tmp, "w") as out:
+            for r in csv.DictReader(f):
+                o = objects.get(r["depictstmsobjectid"])
+                if not o or r["openaccess"] != "1" or r["viewtype"] != "primary":
+                    continue
+                out.write(json.dumps({"id": r["depictstmsobjectid"], "uuid": r["uuid"],
+                                      "w": int(r["width"] or 0), "h": int(r["height"] or 0),
+                                      "title": o[0], "date": o[1], "artist": o[2], "class": o[3],
+                                      "alt": r["assistivetext"]}, ensure_ascii=False) + "\n")
+        tmp.replace(dest)
+    finally:
+        objects_csv.unlink(missing_ok=True)
+        images_csv.unlink(missing_ok=True)
+
+
+def src_nga(q: str, cfg: dict) -> list:
+    """Works whose title or alt text holds every word of q; title matches first."""
+    if not NGA_INDEX.exists() or time.time() - NGA_INDEX.stat().st_mtime > NGA_MAX_AGE:
+        build_nga_index(NGA_INDEX)
+    words = [re.compile(rf"\b{re.escape(w)}", re.I) for w in q.split()]
+    if not words:
+        return []
+    min_dim = cfg.get("art_min_dimension", 2400)
+    out = []
+    with open(NGA_INDEX) as f:
+        for line in f:
+            a = json.loads(line)
+            if max(a["w"], a["h"]) < min_dim:
+                continue
+            in_title = all(w.search(a["title"]) for w in words)
+            if not in_title and not all(w.search(a["title"]) or w.search(a["alt"]) for w in words):
+                continue
+            side = min(5120, max(a["w"], a["h"]))
+            c = cand(f"nga:{a['id']}", f"https://api.nga.gov/iiif/{a['uuid']}/full/!{side},{side}/0/default.jpg",
+                     a["title"] or q, ", ".join(x for x in (a["artist"], a["date"]) if x) or "National Gallery of Art",
+                     "National Gallery of Art", f"https://www.nga.gov/collection/art-object-page.{a['id']}.html", "art")
+            c["rank"] = 0 if in_title else 1
+            out.append(c)
+    out.sort(key=lambda c: (c["rank"], random.random()))
+    return out[:60]
+
+
 # --------------------------------------------- ISS astronaut photography ----
 # NASA JSC's Gateway to Astronaut Photography of Earth. The API filters the
 # human-catalogued `frames` table (features, place names, cloud, tilt) and
@@ -700,7 +772,7 @@ SOURCES = {
     **{site: (lambda s: lambda q, cfg: src_djangoplicity(s, q, cfg))(site) for site in DJANGOPLICITY},
     "photojournal": lambda q, cfg: src_nasa_science("photojournal", q, cfg),
     "earthobs": lambda q, cfg: src_nasa_science("earthobs", q, cfg),
-    "iss": src_iss, "flickr": src_flickr,
+    "iss": src_iss, "flickr": src_flickr, "nga": src_nga,
 }
 
 
