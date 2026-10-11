@@ -12,6 +12,12 @@ Where queries come from, in priority order:
 Every executed query is appended to queries.jsonl and never executed again:
 the ledger is the novelty guarantee at the query level.
 
+Demand: launchd runs this hourly, and it works only while the reserve (approved,
+captioned wallpapers no Mac has shown) is below pool_target. Each intake is sized
+to the shortfall at about ten candidates per keep, the curator's usual rate, and
+at most max_curations_per_day passes run in any 24 hours, so a picky stretch
+cannot spend the Claude plan without bound. `--force` (wp fetch) ignores both.
+
 Backpressure: while the queue holds max_queue or more unjudged candidates
 (the curator is behind or failing), intake pauses and only the chained
 curation pass runs, so a stalled curator cannot bury itself in downloads.
@@ -360,11 +366,36 @@ def queued_count() -> int:
     return sum(1 for p in QUEUE.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png"))
 
 
-def intake(cfg: dict) -> None:
-    """Run one query plan and queue its candidates."""
+def reserve() -> int:
+    """Approved wallpapers waiting their turn: in the pool, captioned, never
+    shown on any Mac, and not on screen now."""
+    sys.path.insert(0, str(BASE))
+    from events import load
+    shown = {e.get("image") for e in load() if e.get("type") == "shown"}
+    state = BASE / "current.txt"
+    current = Path(state.read_text().strip()).name if state.exists() else ""
+    images = Path.home() / "Pictures" / "WorldWallpapers"
+    return sum(1 for p in images.iterdir()
+               if p.suffix.lower() in (".jpg", ".jpeg", ".png") and p.name not in shown
+               and p.name != current and (images / ".display" / p.name).exists())
+
+
+def curations_today() -> int:
+    sys.path.insert(0, str(BASE))
+    from events import load
+    since = time.time() - 86400
+    return sum(1 for e in load() if e.get("type") == "curation" and e["ts"] >= since)
+
+
+def intake(cfg: dict, want: int) -> None:
+    """Run one query plan, queueing about `want` candidates across its queries."""
     seen = set((BASE / "seen.txt").read_text().split()) if (BASE / "seen.txt").exists() else set()
     meta = load_json(BASE / "meta.json", {})
     plan = load_plan(cfg)
+    floor = int(cfg.get("images_per_query", 3))
+    per_query = max(floor, min(8, -(-want // max(1, len(plan)))))
+    cfg = {**cfg, "images_per_query": per_query}
+    print(f"{time.strftime('%F %T')} intake: {len(plan)} queries, up to {per_query} images each")
     total = 0
     run_subjects = set()
     for item in plan:
@@ -377,18 +408,48 @@ def intake(cfg: dict) -> None:
     print(f"done: {total} candidates queued")
 
 
+FILL_ROUNDS = 4   # an emptied pool refills in back-to-back rounds, not hour by hour
+
+
+def one_round(cfg: dict, force: bool) -> bool:
+    """Intake and curation if the pool needs them; True when a curation pass ran."""
+    stamp = time.strftime("%F %T")
+    have, target = reserve(), int(cfg.get("pool_target", 12))
+    backlog, cap = queued_count(), int(cfg.get("max_queue", 30))
+    runs, max_runs = curations_today(), int(cfg.get("max_curations_per_day", 8))
+
+    if not force and have >= target and backlog == 0:
+        print(f"{stamp} {have} approved wallpapers waiting (target {target}); nothing to do")
+        return False
+    if not force and runs >= max_runs:
+        print(f"{stamp} {runs} curation passes in the last 24 h (max_curations_per_day {max_runs}); "
+              f"waiting, with {have} approved wallpapers waiting")
+        return False
+    if backlog >= cap:
+        print(f"{stamp} queue holds {backlog} unjudged candidates "
+              f"(max_queue {cap}); intake paused until curation drains it")
+    elif force or have < target:
+        intake(cfg, want=min(cap - backlog, max(12, (target - have) * 10)))
+    sys.stdout.flush()
+    if "--no-curate" in sys.argv:
+        return False
+    subprocess.run(["/bin/bash", str(BASE / "curate.sh")], check=False)
+    return True
+
+
 def main() -> None:
     cfg = load_json(BASE / "config.json", {})
     QUEUE.mkdir(parents=True, exist_ok=True)
-    backlog, cap = queued_count(), int(cfg.get("max_queue", 30))
-    if backlog >= cap:
-        print(f"{time.strftime('%F %T')} queue holds {backlog} unjudged candidates "
-              f"(max_queue {cap}); intake paused until curation drains it")
-    else:
-        intake(cfg)
-    sys.stdout.flush()
-    if "--no-curate" not in sys.argv:
-        subprocess.run(["/bin/bash", str(BASE / "curate.sh")], check=False)
+    force = "--force" in sys.argv
+    target = int(cfg.get("pool_target", 12))
+    for i in range(FILL_ROUNDS):
+        before = reserve()
+        if not one_round(cfg, force and i == 0):
+            return
+        after = reserve()
+        if after >= target or after <= before:   # full, or a round that added nothing
+            return
+        print(f"{time.strftime('%F %T')} {after} of {target} approved wallpapers waiting; another round")
 
 
 if __name__ == "__main__":

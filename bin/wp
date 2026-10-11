@@ -6,7 +6,7 @@
 #   wp meh          it left you cold (image stays)
 #   wp ban          never again, skip ahead
 #   wp info / open  what is this, and open its source page
-#   wp fetch        intake + curation now
+#   wp fetch        intake + curation now (otherwise hourly, while the pool is low)
 #   wp curate       curation over the current queue
 #   wp seed         (re)establish the macOS grant for the stable wallpaper file
 #   wp auth         store a year-long curator token, so curation never needs a login
@@ -103,7 +103,7 @@ case "$cmd" in
     echo "banned $name"; bash "$BASE/rotate.sh"; warn_health ;;
   info)          "$BASE/info.sh"; warn_health ;;
   open)          log_action; "$BASE/info.sh" open ;;
-  fetch)         /usr/bin/python3 -I "$BASE/fetch.py" ;;
+  fetch)         /usr/bin/python3 -I "$BASE/fetch.py" --force ;;   # now, even with a full pool
   curate)        bash "$BASE/curate.sh" ;;
   seed)          bash "$BASE/seed.sh" ;;
   auth)  # once a year: a long-lived token for headless curation, kept in the login keychain

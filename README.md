@@ -8,7 +8,8 @@ first and slowly kills the second. This one is built to keep both alive.
 
 ## How it works
 
-1. **Intake** (`fetch.py`, launchd 9/15/21h) runs six queries per pass across
+1. **Intake** (`fetch.py`, checked hourly) keeps about a dozen approved
+   wallpapers waiting: whenever the reserve runs low it runs six queries across
    Unsplash, Wikimedia Commons Featured Pictures, The Met, the Art Institute
    of Chicago, and NASA. The queries come from the curator's own plan; the
    first run bootstraps them from a Thompson-sampling bandit over twenty
