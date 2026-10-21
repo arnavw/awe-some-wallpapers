@@ -7,11 +7,16 @@ shared file it writes is its own event stream, which the primary merges, so
 the curator learns from reactions on every screen and nothing ever repeats
 across Macs.
 
+Time is screen time (screentime.py): it counts only while this Mac is awake,
+unlocked and in use, so a wallpaper is never gone the moment the lid opens.
+
 Each tick (launchd: whenever the feed changes, and every five minutes):
-  1. The primary put up a new wallpaper → show the same one here.
-  2. The primary has been quiet for longer than one rotation interval
-     (asleep, lid closed) → keep the show moving here with the next playlist
-     image no Mac has shown yet.
+  1. The primary put up a new wallpaper → show the same one here, at once if
+     this Mac was showing the primary's previous one (it had its time there),
+     otherwise once this Mac's own image has had its full screen time.
+  2. The primary has been quiet while this Mac's image had its full screen
+     time and a grace period (the primary asleep, lid closed) → keep the show
+     moving here with the next playlist image no Mac has shown yet.
 
   follow.py tick            the above
   follow.py advance         the next fresh image, now (wp skip / ban)
@@ -20,7 +25,7 @@ Each tick (launchd: whenever the feed changes, and every five minutes):
   follow.py info [open]     caption and source of what this Mac shows
   follow.py status          what this Mac shows, and how fresh the feed is
 
-Local state lives in ~/.wallpaper-follower/ (state.json, events.<host>.jsonl).
+Local state lives in ~/.wallpaper-follower/ (state.json, clock.json, events.<host>.jsonl).
 Images go on screen through apply.sh, the same stable-path mechanism as the
 primary; seed it once with `wp seed`. Stdlib only, for the stock python3.
 """
@@ -35,14 +40,16 @@ import time
 from pathlib import Path
 
 F = Path.home() / ".wallpaper-follower"
+sys.path.insert(0, str(F))
+import screentime  # noqa: E402  (installed beside this file)
 IC = Path.home() / "Library/Mobile Documents/com~apple~CloudDocs/AweSomeWallpapers"
 FEED = IC / "feed"
 IMAGES = IC / "images"
 HOST = os.uname().nodename.split(".")[0]
 EVENTS = F / f"events.{HOST}.jsonl"
 STATE = F / "state.json"
-ROTATE_S = 3 * 3600   # the primary's rotation interval (install.sh)
-GRACE_S = 20 * 60     # a primary waking from sleep gets the first move
+CLOCK = F / "clock.json"
+GRACE_S = 20 * 60     # when both Macs are in use, the primary gets the first move
 LABELS = {"inter": "interesting", "next": "skip", "n": "skip"}
 
 
@@ -158,14 +165,22 @@ def tick() -> None:
         return
     captions = read_json(FEED / "pool.json", {})
     state = read_json(STATE, {})
+    clock = screentime.tick(CLOCK, state.get("current") or "", after=screentime.ROTATE_S + GRACE_S)
     primary = current["image"]
     if primary != state.get("primary_seen"):
-        # The primary moved on. Follow it, unless this screen already showed that image.
-        if primary == state.get("current") or primary in shown_here() or show(state, primary, captions, mirrored=True):
-            state["primary_seen"] = primary
-            write_atomic(STATE, json.dumps(state, indent=1, ensure_ascii=False))
+        # The primary moved on. Follow it, unless this screen already showed that
+        # image. A Mac that moved on by itself keeps its own image for its full
+        # screen time first; one still in step had that image's time on the primary.
+        if primary != state.get("current") and primary not in shown_here():
+            in_step = state.get("current") in (None, state.get("primary_seen"))
+            if not (in_step or clock["seen_s"] >= screentime.ROTATE_S):
+                return
+            if not show(state, primary, captions, mirrored=True):
+                return
+        state["primary_seen"] = primary
+        write_atomic(STATE, json.dumps(state, indent=1, ensure_ascii=False))
         return
-    if time.time() - state.get("set_at", 0) >= ROTATE_S + GRACE_S:
+    if clock["due"]:
         advance(state, current, captions)
 
 
@@ -185,7 +200,7 @@ def react(cmd: str) -> None:
     if not state.get("current"):
         print("nothing shown on this Mac yet")
         return
-    dwell = int(time.time() - state.get("set_at", time.time()))
+    dwell = int(screentime.seen(CLOCK, state["current"]))   # screen time, not time since it went up
     append("reaction", cmd=LABELS.get(cmd, cmd), image=state["current"], dwell_s=dwell)
 
 
@@ -215,6 +230,7 @@ def status() -> None:
         same = current and current.get("image") == state["current"]
         print(f"showing: {state.get('title') or state['current']}, up {ago(state.get('set_at', 0))}"
               f" ({'same as the primary' if same else 'this Mac moved on'})")
+        print(f"seen:    {screentime.describe(screentime.seen(CLOCK, state['current']))} (counts while unlocked and in use)")
     else:
         print("showing: nothing yet")
     if current:

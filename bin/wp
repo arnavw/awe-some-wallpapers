@@ -22,8 +22,12 @@ cmd="${1:-next}"
 log_action() {
   local image dwell
   image=$(basename "$(cat "$BASE/current.txt" 2>/dev/null)" 2>/dev/null || true)
-  # /usr/bin/stat explicitly: a GNU stat on PATH treats -f as "filesystem"
-  dwell=$(( $(date +%s) - $(/usr/bin/stat -f %m "$BASE/current.txt" 2>/dev/null || date +%s) ))
+  # Dwell is screen time (screentime.py): sleep and time away don't count.
+  if ! dwell=$(/usr/bin/python3 -I "$BASE/screentime.py" seen "$BASE/clock.json" "$image"); then
+    echo "screen clock unreadable (error above); logging the time since it went up instead" >&2
+    # /usr/bin/stat explicitly: a GNU stat on PATH treats -f as "filesystem"
+    dwell=$(( $(date +%s) - $(/usr/bin/stat -f %m "$BASE/current.txt" 2>/dev/null || date +%s) ))
+  fi
   # the learner only knows full labels, so `wp inter` is logged as interesting
   local label="$cmd"
   [[ "$label" == "inter" ]] && label="interesting"
@@ -196,6 +200,7 @@ EOF
     # fresh iPad and follower logs first; a failed pull prints its error and status still runs
     /usr/bin/python3 -I "$BASE/publish.py" pull || true
     /usr/bin/python3 -I "$BASE/health.py" --status
+    /usr/bin/python3 -I "$BASE/screentime.py" status "$BASE/clock.json" "$(cat "$BASE/current.txt" 2>/dev/null)" || true
     echo "pool:    $(ls "$HOME/Pictures/WorldWallpapers"/*.jpg 2>/dev/null | wc -l | tr -d ' ')"
     echo "queue:   $(ls "$BASE/queue" 2>/dev/null | wc -l | tr -d ' ')"
     echo "archive: $(ls "$HOME/Pictures/WorldWallpapers/archive"/*.jpg 2>/dev/null | wc -l | tr -d ' ')"

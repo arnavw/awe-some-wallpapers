@@ -62,9 +62,10 @@ if [[ "${1:-}" == "--follower" || "${1:-}" == "--replica" ]]; then
 
   F="$HOME/.wallpaper-follower"
   mkdir -p "$F"
-  cp "$REPO/follower/follow.py" "$REPO/rotator/apply.sh" "$REPO/rotator/seed.sh" "$REPO/rotator/set_wallpaper.py" "$F/"
+  cp "$REPO/follower/follow.py" "$REPO/rotator/screentime.py" "$REPO/rotator/apply.sh" "$REPO/rotator/seed.sh" \
+     "$REPO/rotator/set_wallpaper.py" "$F/"
   cp "$REPO/follower/wp" "$HOME/.local/bin/wp"
-  chmod +x "$HOME/.local/bin/wp" "$F/follow.py" "$F/apply.sh" "$F/seed.sh" "$F/set_wallpaper.py"
+  chmod +x "$HOME/.local/bin/wp" "$F/follow.py" "$F/screentime.py" "$F/apply.sh" "$F/seed.sh" "$F/set_wallpaper.py"
   plist "com.$USER.wallpaper-follow" \
     "<string>/usr/bin/python3</string><string>-I</string><string>$F/follow.py</string><string>tick</string>" \
     "<key>WatchPaths</key><array><string>$IC/feed/current.json</string></array><key>StartInterval</key><integer>300</integer>"
@@ -89,16 +90,13 @@ rm -f "$BASE/publish.sh" "$BASE/mirror.sh" "$BASE/migrate_v1.py" "$BASE/migrate_
 [[ -f "$BASE/config.json" ]] || cp "$REPO/config.example.json" "$BASE/config.json"
 [[ -f "$BASE/taste.md" ]]    || cp "$REPO/rotator/taste.seed.md" "$BASE/taste.md"
 
-# Rotation at fixed times, 00:30 and every three hours after: half an hour
-# after the hourly intake check, so fresh promotions are ready, and predictable
-# enough for the iPad's shortcut to run ten minutes later.
-rotate_times=""
-for h in 0 3 6 9 12 15 18 21; do
-  rotate_times+="<dict><key>Hour</key><integer>$h</integer><key>Minute</key><integer>30</integer></dict>"
-done
+# Rotation by screen time: a five-minute tick credits the time this Mac is
+# awake, unlocked and in use, and rotates after three hours of it
+# (screentime.py). Clock times would rotate the moment a sleeping Mac wakes,
+# taking away an image that was up only minutes before the lid closed.
 plist "com.$USER.wallpaper-rotate" \
-  "<string>/bin/bash</string><string>$BASE/rotate.sh</string>" \
-  "<key>StartCalendarInterval</key><array>$rotate_times</array>"
+  "<string>/bin/bash</string><string>$BASE/tick.sh</string>" \
+  "<key>StartInterval</key><integer>300</integer>"
 plist "com.$USER.wallpaper-fetch" \
   "<string>/usr/bin/python3</string><string>$BASE/fetch.py</string>" \
   "<key>StartCalendarInterval</key><dict><key>Minute</key><integer>0</integer></dict>"   # hourly; fetch.py works only while the pool is low

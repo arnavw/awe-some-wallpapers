@@ -28,8 +28,11 @@ first and slowly kills the second. This one is built to keep both alive.
    the next six queries (three exploit, two surprise, one orthogonal), programs
    the playlist with a jolt every fourth slot, and keeps `taste.md` under
    twelve bullets.
-4. **Rotate** (`rotate.sh`, every 3h) plays the playlist. Nothing is ever
-   shown twice; shown images retire to `archive/`.
+4. **Rotate** (`rotate.sh`) plays the playlist after each image has had three
+   hours of screen time: time counts only while the Mac is awake, unlocked and
+   in use (`screentime.py`, ticked every five minutes), so an image put up just
+   before the lid closed is still there when it opens. Nothing is ever shown
+   twice; shown images retire to `archive/`.
 5. **Apply** (`apply.sh`): on macOS 26 the wallpaper is one stable file in
    `/Users/Shared` that macOS was pointed at once (`wp seed`); rotation swaps
    its contents and restarts WallpaperAgent — the only path that works from
@@ -96,8 +99,9 @@ choose Keep Downloaded.
 6. End If
 
 Run it once by hand and answer every prompt with Always Allow. Then trigger
-it at 00:40, 03:40, … 21:40 (ten minutes after each rotation) and when the
-charger connects, with Allow Running When Locked on.
+it every hour or two (one Time of Day trigger per hour) and when the charger
+connects, with Allow Running When Locked on. The Mac rotates on its own screen
+time, not on the clock, so a run simply picks up whatever it has put up since.
 
 **Love wallpaper**: one action, Append to Text File: `Current Date love` to
 `AweSomeWallpapers › feed › reactions.ipad.txt`, Make New Line on. Put it in
