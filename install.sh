@@ -91,7 +91,7 @@ rm -f "$BASE/publish.sh" "$BASE/mirror.sh" "$BASE/migrate_v1.py" "$BASE/migrate_
 [[ -f "$BASE/taste.md" ]]    || cp "$REPO/rotator/taste.seed.md" "$BASE/taste.md"
 
 # Rotation by screen time: a five-minute tick credits the time this Mac is
-# awake, unlocked and in use, and rotates after three hours of it
+# awake, unlocked and in use, and rotates after two hours of it
 # (screentime.py). Clock times would rotate the moment a sleeping Mac wakes,
 # taking away an image that was up only minutes before the lid closed.
 plist "com.$USER.wallpaper-rotate" \

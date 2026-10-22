@@ -26,7 +26,7 @@ retire them there.
 - **Quality first (2026-10-11).** The user banned the map lichen
   (1791706634), a clean texture study in flat light kept as a run's only keep,
   and asked for the bar to stay high. Keep only what the user would be glad to
-  live with for three hours. When a run finds nothing that good, keep nothing:
+  live with for two hours. When a run finds nothing that good, keep nothing:
   a low pool is fine, because the rotor holds the current wallpaper rather than
   show a weak one. The one-in-three surprise share counts keeps that clear the
   bar; it is never a quota to fill. Upscaled frames fail, whatever the factor.

@@ -28,7 +28,7 @@ first and slowly kills the second. This one is built to keep both alive.
    the next six queries (three exploit, two surprise, one orthogonal), programs
    the playlist with a jolt every fourth slot, and keeps `taste.md` under
    twelve bullets.
-4. **Rotate** (`rotate.sh`) plays the playlist after each image has had three
+4. **Rotate** (`rotate.sh`) plays the playlist after each image has had two
    hours of screen time: time counts only while the Mac is awake, unlocked and
    in use (`screentime.py`, ticked every five minutes), so an image put up just
    before the lid closed is still there when it opens. Nothing is ever shown

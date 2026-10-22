@@ -4,7 +4,8 @@
 Each register is a Beta-distributed arm. Evidence per shown image:
   love         +1.0 alpha
   interesting  +0.5 alpha (curiosity, not awe)
-  long dwell   +0.25 alpha (skipped only after >= 2 hours on screen)
+  long dwell   +0.25 alpha (skipped only after >= 80 minutes of screen time,
+               two thirds of a turn; screentime.ROTATE_S)
   meh / ban    +1.0 beta
   fast skip    +1.0 beta (skipped within 15 minutes of appearing)
 Each image counts once per kind of reaction. Pulls = number of showings.
@@ -19,7 +20,7 @@ from pathlib import Path
 BASE = Path.home() / ".wallpaper-rotator"
 sys.path.insert(0, str(BASE))
 FAST_SKIP_S = 15 * 60
-LONG_DWELL_S = 2 * 3600
+LONG_DWELL_S = 80 * 60
 
 
 def main() -> None:

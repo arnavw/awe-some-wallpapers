@@ -33,7 +33,7 @@ import sys
 import time
 from pathlib import Path
 
-ROTATE_S = 3 * 3600       # seen time an image gets before the show moves on
+ROTATE_S = 2 * 3600       # seen time an image gets before the show moves on
 IDLE_LIMIT_S = 10 * 60    # input more recent than this means someone is at the Mac
 TICK_CAP_S = 10 * 60      # the most one tick credits; ticks run every five minutes
 RETRY_S = 30 * 60         # how often a due move that found nothing fresh is retried
